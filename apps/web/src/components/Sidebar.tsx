@@ -1067,6 +1067,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
   compact: boolean;
+  /** Sits under a project header, so it steps in and reads one size down. */
+  grouped: boolean;
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle" | "unsnooze";
@@ -1514,6 +1516,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
+    // Indented and a size down from the project header above it, so the run
+    // reads as that project's threads rather than as more top-level rows.
+    props.grouped && "ms-3 w-[calc(100%-0.75rem)]",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground"
@@ -1580,6 +1585,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     <span
       className={cn(
         "min-w-0 flex-1 text-sm transition-opacity motion-reduce:transition-none",
+        // A step down from the project header that owns this run.
+        props.grouped && "text-[0.8125rem]",
         shouldRecede ? "font-normal" : "font-medium",
         variant === "card"
           ? cn(
@@ -5057,6 +5064,7 @@ export default function Sidebar() {
                             thread={thread}
                             variant={rowVariant}
                             compact={compactThreadRows}
+                            grouped={groupThreadsByProject && !compact}
                             // Snoozed rows wake, settled rows un-settle, and cards settle.
                             variantAction={
                               section === "snoozed"
