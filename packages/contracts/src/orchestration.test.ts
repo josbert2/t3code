@@ -1494,6 +1494,46 @@ it.effect("project icon overrides accept Lucide icons, colors, and emoji", () =>
   }),
 );
 
+it.effect("project spaces accept a label and clearing, and reject blank or long names", () =>
+  Effect.gen(function* () {
+    const named = yield* decodeOrchestrationCommand({
+      type: "project.meta.update",
+      commandId: "cmd-project-space",
+      projectId: "project-1",
+      space: "Side projects",
+    });
+    assert.strictEqual(named.type, "project.meta.update");
+
+    const cleared = yield* decodeOrchestrationCommand({
+      type: "project.meta.update",
+      commandId: "cmd-project-space-cleared",
+      projectId: "project-1",
+      space: null,
+    });
+    assert.strictEqual(cleared.type, "project.meta.update");
+
+    const blank = yield* Effect.exit(
+      decodeOrchestrationCommand({
+        type: "project.meta.update",
+        commandId: "cmd-project-space-blank",
+        projectId: "project-1",
+        space: "   ",
+      }),
+    );
+    assert.strictEqual(blank._tag, "Failure");
+
+    const tooLong = yield* Effect.exit(
+      decodeOrchestrationCommand({
+        type: "project.meta.update",
+        commandId: "cmd-project-space-too-long",
+        projectId: "project-1",
+        space: "s".repeat(65),
+      }),
+    );
+    assert.strictEqual(tooLong._tag, "Failure");
+  }),
+);
+
 it.effect("rejects thread history imports without messages", () =>
   Effect.gen(function* () {
     const result = yield* Effect.exit(

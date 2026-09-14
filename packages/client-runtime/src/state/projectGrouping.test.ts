@@ -5,7 +5,11 @@ import type { EnvironmentProject } from "./models.ts";
 import { chooseLoadBalancedEnvironment } from "../load-balancing.ts";
 import {
   buildProjectGroups,
+  buildProjectSpaceSections,
   derivePhysicalProjectKey,
+  listProjectSpaceNames,
+  resolveProjectGroupSpace,
+  UNSPACED_PROJECT_SECTION_KEY,
   type ProjectGroupingSettings,
 } from "./projectGrouping.ts";
 
@@ -277,5 +281,65 @@ describe("buildProjectGroups", () => {
     });
     expect(groups).toHaveLength(1);
     expect(groups[0]?.members.map((member) => member.project.id)).toEqual(["winner", "sibling"]);
+  });
+});
+
+describe("buildProjectSpaceSections", () => {
+  it("sorts named spaces alphabetically and keeps unspaced projects last", () => {
+    const projects = [
+      makeProject("erp", "/work/erp", { space: "Work", repositoryIdentity: null }),
+      makeProject("blog", "/work/blog", { space: "Hobby", repositoryIdentity: null }),
+      makeProject("scratch", "/work/scratch", { repositoryIdentity: null }),
+    ];
+
+    const sections = buildProjectSpaceSections({
+      groups: buildProjectGroups({ projects, settings: settings("separate") }),
+      resolveSpace: resolveProjectGroupSpace,
+    });
+
+    expect(sections.map((section) => section.name)).toEqual(["Hobby", "Work", null]);
+    expect(sections.at(-1)?.key).toBe(UNSPACED_PROJECT_SECTION_KEY);
+    expect(sections[0]?.groups.map((group) => group.representative.id)).toEqual(["blog"]);
+  });
+
+  it("merges spellings that differ only in case, keeping the first one seen", () => {
+    const projects = [
+      makeProject("erp", "/work/erp", { space: "Work", repositoryIdentity: null }),
+      makeProject("crm", "/work/crm", { space: "work", repositoryIdentity: null }),
+    ];
+
+    const sections = buildProjectSpaceSections({
+      groups: buildProjectGroups({ projects, settings: settings("separate") }),
+      resolveSpace: resolveProjectGroupSpace,
+    });
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]?.name).toBe("Work");
+    expect(sections[0]?.groups).toHaveLength(2);
+  });
+
+  it("files a grouped project by any member's space, not only the representative's", () => {
+    const projects = [
+      makeProject("t3code", "/work/t3code"),
+      makeProject("t3code-2", "/work/t3code-2", { space: "Work" }),
+    ];
+
+    const sections = buildProjectSpaceSections({
+      groups: buildProjectGroups({ projects, settings: settings("repository") }),
+      resolveSpace: resolveProjectGroupSpace,
+    });
+
+    expect(sections.map((section) => section.name)).toEqual(["Work"]);
+  });
+
+  it("lists existing space names once, sorted, for the picker", () => {
+    const projects = [
+      makeProject("erp", "/work/erp", { space: "Work" }),
+      makeProject("crm", "/work/crm", { space: "work" }),
+      makeProject("blog", "/work/blog", { space: "Hobby" }),
+      makeProject("scratch", "/work/scratch"),
+    ];
+
+    expect(listProjectSpaceNames(projects)).toEqual(["Hobby", "Work"]);
   });
 });

@@ -47,6 +47,16 @@ Select the project and open Project to choose an icon, emoji, or image. The choi
 every checkout in the project group and appears on connected clients. Choose **Automatic** to let
 T3 Code detect an icon again.
 
+## Spaces
+
+A space collects related projects, such as Work or Side projects. Select the project, open Project,
+and type a space name; the field suggests the spaces you already use. A project belongs to one
+space, and clearing the field removes it from that space.
+
+The sidebar's project filter then lists each space above its projects. Choosing a space shows the
+threads from every project in it, so you can work through one part of your day without the rest of
+your projects in the list.
+
 ## Keep the default branch current
 
 In Source Control, enable **Automatically pull** to keep the default-branch checkout up to date

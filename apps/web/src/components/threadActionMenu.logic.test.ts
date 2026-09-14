@@ -4,6 +4,7 @@ import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./thread
 
 const baseState: ThreadActionMenuState = {
   branch: null,
+  worktreePath: null,
   isPinned: false,
   isSettled: false,
   isSnoozed: false,
@@ -33,7 +34,15 @@ describe("buildThreadActionMenuItems", () => {
         ...baseState,
         supports: { settlement: false, snooze: false, pinning: false, titleRegeneration: false },
       }),
-    ).toEqual(["rename", "mark-unread", "copy", "project-settings", "archive", "delete"]);
+    ).toEqual([
+      "new-session-here",
+      "rename",
+      "mark-unread",
+      "copy",
+      "project-settings",
+      "archive",
+      "delete",
+    ]);
   });
 
   it("groups project settings with utility actions before archive", () => {
@@ -49,10 +58,19 @@ describe("buildThreadActionMenuItems", () => {
 
   it("includes branch items only for threads with a branch", () => {
     const withBranch = allIds({ ...baseState, branch: "feat/menu" });
-    expect(withBranch).toContain("new-thread-on-branch");
     expect(withBranch).toContain("copy-branch");
-    expect(allIds(baseState)).not.toContain("new-thread-on-branch");
     expect(allIds(baseState)).not.toContain("copy-branch");
+  });
+
+  it("always offers a sibling session, and says where it will start", () => {
+    const label = (state: ThreadActionMenuState) =>
+      buildThreadActionMenuItems(state).find((item) => item.id === "new-session-here")?.label;
+
+    expect(label(baseState)).toBe("New session in this project");
+    expect(label({ ...baseState, branch: "feat/menu" })).toBe("New session on feat/menu");
+    expect(
+      label({ ...baseState, branch: "feat/menu", worktreePath: "/tmp/worktrees/feat-menu" }),
+    ).toBe("New session in this worktree");
   });
 
   it("flips lifecycle labels with thread state", () => {

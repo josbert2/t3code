@@ -12,6 +12,7 @@ import {
   ProjectIconOverride,
   ProjectId,
   ProjectScript,
+  ProjectSpaceName,
   ThreadEnvMode,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -30,6 +31,7 @@ export const ProjectionProject = Schema.Struct({
   autoPull: Schema.Boolean,
   faviconPath: Schema.optional(Schema.NullOr(Schema.String)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+  space: Schema.optional(Schema.NullOr(ProjectSpaceName)),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

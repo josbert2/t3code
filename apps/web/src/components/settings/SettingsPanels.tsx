@@ -1439,6 +1439,33 @@ export function AppearanceSettingsPanel() {
             </div>
           }
         />
+        <SettingsRow
+          title="Group threads by project"
+          description="Puts each project's name above its threads in the sidebar list."
+          resetAction={
+            settings.sidebarGroupThreadsByProject !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarGroupThreadsByProject ? (
+              <SettingResetButton
+                label="thread grouping"
+                onClick={() =>
+                  updateSettings({
+                    sidebarGroupThreadsByProject:
+                      DEFAULT_UNIFIED_SETTINGS.sidebarGroupThreadsByProject,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarGroupThreadsByProject}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarGroupThreadsByProject: Boolean(checked) })
+              }
+              aria-label="Group threads by project"
+            />
+          }
+        />
       </SettingsSection>
 
       <TypographySection />

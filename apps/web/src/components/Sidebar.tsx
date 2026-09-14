@@ -32,8 +32,10 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   resolveEnvironmentMachineKind,
+  type EnvironmentId,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
+  type ProjectId,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -50,6 +52,7 @@ import {
   EyeIcon,
   FolderIcon,
   GitBranchIcon,
+  LayersIcon,
   MessageCircleQuestionIcon,
   PinIcon,
   PinOffIcon,
@@ -109,10 +112,16 @@ import {
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import {
   buildSidebarProjectSnapshots,
+  buildSidebarSpaceSections,
   projectGroupsSpanEnvironments,
+  resolveScopedProjectKeys,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
+  useUiStateStore,
+} from "../uiStateStore";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -1029,10 +1038,59 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+/** How the sidebar's project maps are keyed: environment and project together. */
+type ProjectLookupKey = `${EnvironmentId}:${ProjectId}`;
+
+/**
+ * Names the project a run of thread rows belongs to. Rendered outside the
+ * sortable collection, so it never becomes a drop target of its own.
+ */
+const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
+  project: EnvironmentProject | null;
+  label: string | null;
+  expanded: boolean;
+  threadCount: number;
+  onToggle: () => void;
+}) {
+  if (props.label === null) return null;
+  return (
+    <li
+      data-sidebar-project-header
+      className="list-none px-1 pt-3 pb-1 first:pt-1 [contain-intrinsic-size:auto_28px] [content-visibility:auto]"
+    >
+      <button
+        type="button"
+        aria-expanded={props.expanded}
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={props.onToggle}
+      >
+        <ChevronDownIcon
+          className={cn(
+            "size-3.5 shrink-0 text-icon-muted transition-transform motion-reduce:transition-none",
+            !props.expanded && "-rotate-90",
+          )}
+        />
+        {props.project ? (
+          <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+        ) : null}
+        <span className="min-w-0 flex-1 truncate font-medium text-secondary-label text-xs">
+          {props.label}
+        </span>
+        {/* The count is what a collapsed group has left to say. */}
+        <span className="shrink-0 text-secondary-label text-xs tabular-nums">
+          {props.threadCount}
+        </span>
+      </button>
+    </li>
+  );
+});
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
   compact: boolean;
+  /** Sits under a project header, so it steps in and reads one size down. */
+  grouped: boolean;
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle" | "unsnooze";
@@ -1480,6 +1538,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
+    // Indented and a size down from the project header above it, so the run
+    // reads as that project's threads rather than as more top-level rows.
+    props.grouped && "ms-3 w-[calc(100%-0.75rem)]",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground"
@@ -1546,6 +1607,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     <span
       className={cn(
         "min-w-0 flex-1 text-sm transition-opacity motion-reduce:transition-none",
+        // A step down from the project header that owns this run.
+        props.grouped && "text-[0.8125rem]",
         shouldRecede ? "font-normal" : "font-medium",
         variant === "card"
           ? cn(
@@ -2450,6 +2513,9 @@ export default function Sidebar() {
   const [snoozedFooter, setSnoozedFooter] = useState<HTMLUListElement | null>(null);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const compactThreadRows = useClientSettings((s) => s.sidebarCompactThreadRows);
+  const groupThreadsByProject = useClientSettings((s) => s.sidebarGroupThreadsByProject);
+  const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const setProjectExpandedInStore = useUiStateStore((store) => store.setProjectExpanded);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
@@ -2669,15 +2735,31 @@ export default function Sidebar() {
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
+  // Spaces are scope targets of their own: picking one filters the list to
+  // every project filed under it, and its projects follow as their own rows.
+  const projectSpaceSections = useMemo(
+    () => buildSidebarSpaceSections(projectGroups),
+    [projectGroups],
+  );
   const projectScopeItems = useMemo(
     () => [
-      { value: "all", label: "All projects" },
-      ...projectGroups.map((project) => ({
-        value: project.projectKey,
-        label: project.displayName,
-      })),
+      { value: "all", label: "All projects", isSpace: false },
+      ...projectSpaceSections.flatMap((section) => [
+        ...(section.name === null
+          ? []
+          : [{ value: section.key, label: section.name, isSpace: true }]),
+        ...section.groups.map((project) => ({
+          value: project.projectKey,
+          label: project.displayName,
+          isSpace: false,
+        })),
+      ]),
     ],
-    [projectGroups],
+    [projectSpaceSections],
+  );
+  const scopedSpaceName = useMemo(
+    () => projectSpaceSections.find((section) => section.key === projectScopeKey)?.name ?? null,
+    [projectScopeKey, projectSpaceSections],
   );
   // Same-named projects on two machines are only told apart by where they
   // live, so rows on another machine carry its icon once the catalog spans
@@ -2726,24 +2808,33 @@ export default function Sidebar() {
   );
   const scopedProjectKeys = useMemo(
     () =>
-      scopedProjectGroup === null
-        ? null
-        : new Set(
-            scopedProjectGroup.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-            ),
-          ),
-    [scopedProjectGroup],
+      resolveScopedProjectKeys({
+        scopeKey: projectScopeKey,
+        groups: projectGroups,
+        spaceSections: projectSpaceSections,
+      }),
+    [projectGroups, projectScopeKey, projectSpaceSections],
   );
   // A persisted scope whose project is gone falls back to all projects, but
   // only after every catalog environment has a live project snapshot. Cached
   // or disconnected environments cannot establish that the project is gone.
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   useEffect(() => {
-    if (projectScopeKey !== null && allProjectSnapshotsReady && scopedProjectGroup === null) {
+    if (
+      projectScopeKey !== null &&
+      allProjectSnapshotsReady &&
+      scopedProjectGroup === null &&
+      scopedSpaceName === null
+    ) {
       setProjectScopeKey(null);
     }
-  }, [allProjectSnapshotsReady, projectScopeKey, scopedProjectGroup, setProjectScopeKey]);
+  }, [
+    allProjectSnapshotsReady,
+    projectScopeKey,
+    scopedProjectGroup,
+    scopedSpaceName,
+    setProjectScopeKey,
+  ]);
   // Count-only subscription: the parent needs "are there draft rows" for the
   // empty state, while SidebarDraftBlock owns the per-keystroke content
   // subscription. Selecting a number keeps typing in a draft composer from
@@ -4366,6 +4457,7 @@ export default function Sidebar() {
           api.contextMenu.show(
             buildThreadActionMenuItems({
               branch: thread.branch ?? null,
+              worktreePath: thread.worktreePath ?? null,
               isPinned,
               isSettled,
               isSnoozed,
@@ -4404,9 +4496,10 @@ export default function Sidebar() {
             if (projectGroup) openProjectSettings(projectGroup);
             return;
           }
-          case "new-thread-on-branch": {
-            // Explicit branch carry-over: reuse the thread's worktree when it
-            // has one, otherwise its branch on the local checkout.
+          case "new-session-here": {
+            // Explicit carry-over: join the thread's worktree when it has one,
+            // otherwise its branch on the local checkout, otherwise just the
+            // project, which is what a thread with neither shares.
             const result = await settlePromise(() =>
               handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId), {
                 branch: thread.branch,
@@ -4740,7 +4833,9 @@ export default function Sidebar() {
                         label={
                           scopedProjectGroup
                             ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
+                            : scopedSpaceName
+                              ? `Filter threads by space: ${scopedSpaceName}`
+                              : "Filter threads by project"
                         }
                       />
                     }
@@ -4751,6 +4846,8 @@ export default function Sidebar() {
                       <span className="flex shrink-0">
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
                       </span>
+                    ) : scopedSpaceName ? (
+                      <LayersIcon className="size-4" />
                     ) : (
                       <FolderIcon className="size-4" />
                     )}
@@ -4813,6 +4910,8 @@ export default function Sidebar() {
                           >
                             {project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
+                            ) : item.isSpace ? (
+                              <LayersIcon className="size-4 shrink-0" />
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
                             )}
@@ -4989,6 +5088,7 @@ export default function Sidebar() {
                             thread={thread}
                             variant={rowVariant}
                             compact={compactThreadRows}
+                            grouped={groupThreadsByProject && !compact}
                             // Snoozed rows wake, settled rows un-settle, and cards settle.
                             variantAction={
                               section === "snoozed"
@@ -5120,6 +5220,25 @@ export default function Sidebar() {
                           onNavigateToDraft={navigateToDraft}
                         />,
                       ];
+                      // Grouping is a render-time concern only: headers are plain
+                      // rows outside the sortable collection, so drag, drop and
+                      // ordering keep working on exactly the items they always had.
+                      const threadCountByGroup = new Map<string, number>();
+                      if (groupThreadsByProject && !compact) {
+                        for (const item of sidebarListItems) {
+                          if (item.kind !== "thread") continue;
+                          const thread = threadByKey.get(item.key);
+                          if (thread === undefined) continue;
+                          const groupKey = `${item.section}:${thread.environmentId}:${thread.projectId}`;
+                          threadCountByGroup.set(
+                            groupKey,
+                            (threadCountByGroup.get(groupKey) ?? 0) + 1,
+                          );
+                        }
+                      }
+                      let headerProjectKey: ProjectLookupKey | null = null;
+                      let headerSection: SidebarSection | null = null;
+                      let headerCollapsed = false;
                       for (const item of sidebarListItems) {
                         const destination =
                           compact &&
@@ -5129,11 +5248,46 @@ export default function Sidebar() {
                             ? snoozedItems
                             : items;
                         if (item.kind === "thread") {
-                          destination.push(
-                            renderThreadRow(threadByKey.get(item.key)!, item.section),
-                          );
+                          const thread = threadByKey.get(item.key)!;
+                          const projectKey: ProjectLookupKey = `${thread.environmentId}:${thread.projectId}`;
+                          if (
+                            groupThreadsByProject &&
+                            !compact &&
+                            (projectKey !== headerProjectKey || item.section !== headerSection)
+                          ) {
+                            headerProjectKey = projectKey;
+                            headerSection = item.section;
+                            headerCollapsed = !resolveProjectExpanded(projectExpandedById, [
+                              projectKey,
+                            ]);
+                            const toggleKey = projectKey;
+                            const expanded = !headerCollapsed;
+                            destination.push(
+                              <SidebarProjectHeaderRow
+                                key={`project-header:${item.section}:${projectKey}`}
+                                project={projectByKey.get(projectKey) ?? null}
+                                label={projectDisplayNameByKey.get(projectKey) ?? null}
+                                expanded={expanded}
+                                threadCount={
+                                  threadCountByGroup.get(
+                                    `${item.section}:${thread.environmentId}:${thread.projectId}`,
+                                  ) ?? 0
+                                }
+                                onToggle={() => setProjectExpandedInStore(toggleKey, !expanded)}
+                              />,
+                            );
+                          }
+                          // A collapsed group keeps its header and its count;
+                          // the rows leave the tree so they cost nothing.
+                          if (headerCollapsed && projectKey === headerProjectKey) continue;
+                          destination.push(renderThreadRow(thread, item.section));
                           continue;
                         }
+                        // A section boundary ends the run, so the first project of
+                        // the next section gets its own header.
+                        headerProjectKey = null;
+                        headerSection = null;
+                        headerCollapsed = false;
                         switch (item.marker) {
                           case "pinned-header":
                             items.push(
@@ -5321,6 +5475,8 @@ export default function Sidebar() {
                 </>
               ) : compact ? null : scopedProjectGroup ? (
                 `No threads in ${scopedProjectGroup.displayName} yet`
+              ) : scopedSpaceName ? (
+                `No threads in ${scopedSpaceName} yet`
               ) : (
                 "No threads yet"
               )}

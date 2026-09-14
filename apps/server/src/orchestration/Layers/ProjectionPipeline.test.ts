@@ -4353,6 +4353,52 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 
+  it.effect("projects persist a space label and its removal from project.meta.update", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-space-project-create"),
+        projectId: ProjectId.make("project-space"),
+        title: "Space Project",
+        workspaceRoot: "/tmp/project-space",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+
+      const readSpace = sql<{ readonly space: string | null }>`
+        SELECT space FROM projection_projects WHERE project_id = 'project-space'
+      `;
+
+      assert.deepEqual(yield* readSpace, [{ space: null }]);
+
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-space-project-assign"),
+        projectId: ProjectId.make("project-space"),
+        space: "Side projects",
+      });
+
+      assert.deepEqual(yield* readSpace, [{ space: "Side projects" }]);
+
+      // Clearing is the way out of a space, so null has to survive the round trip
+      // rather than read as "field absent, keep what you had".
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-space-project-clear"),
+        projectId: ProjectId.make("project-space"),
+        space: null,
+      });
+
+      assert.deepEqual(yield* readSpace, [{ space: null }]);
+    }),
+  );
+
   it.effect("re-creating a deleted thread id starts from an empty projection", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;

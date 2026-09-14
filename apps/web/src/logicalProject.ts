@@ -1,5 +1,9 @@
 export {
   buildProjectGroups,
+  buildProjectSpaceSections,
+  listProjectSpaceNames,
+  resolveProjectGroupSpace,
+  UNSPACED_PROJECT_SECTION_KEY,
   deriveLogicalProjectKey,
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
@@ -12,4 +16,5 @@ export {
   type ProjectGroupingSettings,
   type ProjectGroup,
   type ProjectGroupMember,
+  type ProjectSpaceSection,
 } from "@t3tools/client-runtime/state/project-grouping";
