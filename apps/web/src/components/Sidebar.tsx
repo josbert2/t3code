@@ -117,7 +117,11 @@ import {
   resolveScopedProjectKeys,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
+  useUiStateStore,
+} from "../uiStateStore";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -1044,21 +1048,39 @@ type ProjectLookupKey = `${EnvironmentId}:${ProjectId}`;
 const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
   project: EnvironmentProject | null;
   label: string | null;
+  expanded: boolean;
+  threadCount: number;
+  onToggle: () => void;
 }) {
   if (props.label === null) return null;
   return (
     <li
       data-sidebar-project-header
-      className="list-none px-2.5 pt-3 pb-1 first:pt-1 [contain-intrinsic-size:auto_28px] [content-visibility:auto]"
+      className="list-none px-1 pt-3 pb-1 first:pt-1 [contain-intrinsic-size:auto_28px] [content-visibility:auto]"
     >
-      <div className="flex min-w-0 items-center gap-2">
+      <button
+        type="button"
+        aria-expanded={props.expanded}
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={props.onToggle}
+      >
+        <ChevronDownIcon
+          className={cn(
+            "size-3.5 shrink-0 text-icon-muted transition-transform motion-reduce:transition-none",
+            !props.expanded && "-rotate-90",
+          )}
+        />
         {props.project ? (
           <ProjectFavicon project={props.project} className="size-4 shrink-0" />
         ) : null}
         <span className="min-w-0 flex-1 truncate font-medium text-secondary-label text-xs">
           {props.label}
         </span>
-      </div>
+        {/* The count is what a collapsed group has left to say. */}
+        <span className="shrink-0 text-secondary-label text-xs tabular-nums">
+          {props.threadCount}
+        </span>
+      </button>
     </li>
   );
 });
@@ -2492,6 +2514,8 @@ export default function Sidebar() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const compactThreadRows = useClientSettings((s) => s.sidebarCompactThreadRows);
   const groupThreadsByProject = useClientSettings((s) => s.sidebarGroupThreadsByProject);
+  const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const setProjectExpandedInStore = useUiStateStore((store) => store.setProjectExpanded);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
@@ -5199,8 +5223,22 @@ export default function Sidebar() {
                       // Grouping is a render-time concern only: headers are plain
                       // rows outside the sortable collection, so drag, drop and
                       // ordering keep working on exactly the items they always had.
+                      const threadCountByGroup = new Map<string, number>();
+                      if (groupThreadsByProject && !compact) {
+                        for (const item of sidebarListItems) {
+                          if (item.kind !== "thread") continue;
+                          const thread = threadByKey.get(item.key);
+                          if (thread === undefined) continue;
+                          const groupKey = `${item.section}:${thread.environmentId}:${thread.projectId}`;
+                          threadCountByGroup.set(
+                            groupKey,
+                            (threadCountByGroup.get(groupKey) ?? 0) + 1,
+                          );
+                        }
+                      }
                       let headerProjectKey: ProjectLookupKey | null = null;
                       let headerSection: SidebarSection | null = null;
+                      let headerCollapsed = false;
                       for (const item of sidebarListItems) {
                         const destination =
                           compact &&
@@ -5219,14 +5257,29 @@ export default function Sidebar() {
                           ) {
                             headerProjectKey = projectKey;
                             headerSection = item.section;
+                            headerCollapsed = !resolveProjectExpanded(projectExpandedById, [
+                              projectKey,
+                            ]);
+                            const toggleKey = projectKey;
+                            const expanded = !headerCollapsed;
                             destination.push(
                               <SidebarProjectHeaderRow
                                 key={`project-header:${item.section}:${projectKey}`}
                                 project={projectByKey.get(projectKey) ?? null}
                                 label={projectDisplayNameByKey.get(projectKey) ?? null}
+                                expanded={expanded}
+                                threadCount={
+                                  threadCountByGroup.get(
+                                    `${item.section}:${thread.environmentId}:${thread.projectId}`,
+                                  ) ?? 0
+                                }
+                                onToggle={() => setProjectExpandedInStore(toggleKey, !expanded)}
                               />,
                             );
                           }
+                          // A collapsed group keeps its header and its count;
+                          // the rows leave the tree so they cost nothing.
+                          if (headerCollapsed && projectKey === headerProjectKey) continue;
                           destination.push(renderThreadRow(thread, item.section));
                           continue;
                         }
@@ -5234,6 +5287,7 @@ export default function Sidebar() {
                         // the next section gets its own header.
                         headerProjectKey = null;
                         headerSection = null;
+                        headerCollapsed = false;
                         switch (item.marker) {
                           case "pinned-header":
                             items.push(
