@@ -6,12 +6,13 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { listProjectSpaceNames } from "@t3tools/client-runtime/state/project-grouping";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import { Trash2Icon } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
@@ -21,7 +22,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
-import { useThreadShells } from "../../state/entities";
+import { useProjects, useThreadShells } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -209,6 +210,7 @@ function ProjectDetail({
         title: string;
         faviconPath: string | null;
         projectIcon: ProjectIconOverride | null;
+        space: string | null;
       }>,
       failureTitle: string,
     ): Promise<AtomCommandResult<void, unknown>> => {
@@ -268,6 +270,20 @@ function ProjectDetail({
       await updateAllMembers({ title }, "Failed to rename project");
     },
     [group.memberProjects, updateAllMembers],
+  );
+
+  // ----- space -----
+  const spaceListId = useId();
+  const knownSpaces = listProjectSpaceNames(useProjects());
+  const space = representative.space ?? null;
+  const assignSpace = useCallback(
+    async (nextSpace: string) => {
+      const trimmed = nextSpace.trim();
+      const next = trimmed === "" ? null : trimmed;
+      if (next === space) return;
+      await updateAllMembers({ space: next }, "Failed to update project space");
+    },
+    [space, updateAllMembers],
   );
 
   // ----- project icon -----
@@ -429,6 +445,38 @@ function ProjectDetail({
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
               />
+            }
+          />
+          <SettingsRow
+            title="Space"
+            description="Groups this project with others in the sidebar, such as Work or Side projects."
+            resetAction={
+              group.memberProjects.some((member) => member.space != null) ? (
+                <SettingResetButton label="space" onClick={() => void assignSpace("")} />
+              ) : null
+            }
+            control={
+              <>
+                <Input
+                  key={`${group.projectKey}:${space ?? ""}`}
+                  size="sm"
+                  className="w-full sm:w-64"
+                  aria-label="Project space"
+                  list={spaceListId}
+                  maxLength={64}
+                  placeholder="No space"
+                  defaultValue={space ?? ""}
+                  onBlur={(event) => void assignSpace(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                />
+                <datalist id={spaceListId}>
+                  {knownSpaces.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </>
             }
           />
           <SettingsRow

@@ -12,6 +12,7 @@ import {
   buildPhysicalToLogicalProjectKeyMap,
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
+  buildSidebarSpaceSections,
   projectGroupsSpanEnvironments,
 } from "./sidebarProjectGrouping";
 import { orderItemsByPreferredIds } from "./components/Sidebar.logic";
@@ -456,5 +457,60 @@ describe("environment grouping", () => {
     });
 
     expect(groups.map((group) => group.displayName)).toEqual(["separate", "shared-repo"]);
+  });
+});
+
+describe("sidebar spaces", () => {
+  function snapshotsFor(projects: ReadonlyArray<Project>) {
+    return buildSidebarProjectSnapshots({
+      projects,
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+  }
+
+  it("sections projects by space and keeps unspaced ones last", () => {
+    const sections = buildSidebarSpaceSections(
+      snapshotsFor([
+        makeProject({
+          id: ProjectId.make("erp"),
+          title: "erp",
+          workspaceRoot: "/tmp/erp",
+          space: "Work",
+        }),
+        makeProject({
+          id: ProjectId.make("blog"),
+          title: "blog",
+          workspaceRoot: "/tmp/blog",
+          space: "Hobby",
+        }),
+        makeProject({
+          id: ProjectId.make("scratch"),
+          title: "scratch",
+          workspaceRoot: "/tmp/scratch",
+        }),
+      ]),
+    );
+
+    expect(sections.map((section) => section.name)).toEqual(["Hobby", "Work", null]);
+    expect(sections.at(-1)?.groups.map((group) => group.displayName)).toEqual(["scratch"]);
+  });
+
+  it("keeps a cross-environment project in the space only one checkout names", () => {
+    const sections = buildSidebarSpaceSections(
+      snapshotsFor([
+        makeProject({ repositoryIdentity }),
+        makeProject({
+          id: ProjectId.make("project-remote"),
+          environmentId: remoteEnvironmentId,
+          repositoryIdentity,
+          space: "Work",
+        }),
+      ]),
+    );
+
+    expect(sections.map((section) => section.name)).toEqual(["Work"]);
+    expect(sections[0]?.groups).toHaveLength(1);
   });
 });

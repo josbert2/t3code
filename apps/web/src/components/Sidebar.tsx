@@ -50,6 +50,7 @@ import {
   EyeIcon,
   FolderIcon,
   GitBranchIcon,
+  LayersIcon,
   MessageCircleQuestionIcon,
   PinIcon,
   PinOffIcon,
@@ -109,7 +110,9 @@ import {
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import {
   buildSidebarProjectSnapshots,
+  buildSidebarSpaceSections,
   projectGroupsSpanEnvironments,
+  resolveScopedProjectKeys,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -2669,15 +2672,31 @@ export default function Sidebar() {
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
+  // Spaces are scope targets of their own: picking one filters the list to
+  // every project filed under it, and its projects follow as their own rows.
+  const projectSpaceSections = useMemo(
+    () => buildSidebarSpaceSections(projectGroups),
+    [projectGroups],
+  );
   const projectScopeItems = useMemo(
     () => [
-      { value: "all", label: "All projects" },
-      ...projectGroups.map((project) => ({
-        value: project.projectKey,
-        label: project.displayName,
-      })),
+      { value: "all", label: "All projects", isSpace: false },
+      ...projectSpaceSections.flatMap((section) => [
+        ...(section.name === null
+          ? []
+          : [{ value: section.key, label: section.name, isSpace: true }]),
+        ...section.groups.map((project) => ({
+          value: project.projectKey,
+          label: project.displayName,
+          isSpace: false,
+        })),
+      ]),
     ],
-    [projectGroups],
+    [projectSpaceSections],
+  );
+  const scopedSpaceName = useMemo(
+    () => projectSpaceSections.find((section) => section.key === projectScopeKey)?.name ?? null,
+    [projectScopeKey, projectSpaceSections],
   );
   // Same-named projects on two machines are only told apart by where they
   // live, so rows on another machine carry its icon once the catalog spans
@@ -2726,24 +2745,33 @@ export default function Sidebar() {
   );
   const scopedProjectKeys = useMemo(
     () =>
-      scopedProjectGroup === null
-        ? null
-        : new Set(
-            scopedProjectGroup.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-            ),
-          ),
-    [scopedProjectGroup],
+      resolveScopedProjectKeys({
+        scopeKey: projectScopeKey,
+        groups: projectGroups,
+        spaceSections: projectSpaceSections,
+      }),
+    [projectGroups, projectScopeKey, projectSpaceSections],
   );
   // A persisted scope whose project is gone falls back to all projects, but
   // only after every catalog environment has a live project snapshot. Cached
   // or disconnected environments cannot establish that the project is gone.
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   useEffect(() => {
-    if (projectScopeKey !== null && allProjectSnapshotsReady && scopedProjectGroup === null) {
+    if (
+      projectScopeKey !== null &&
+      allProjectSnapshotsReady &&
+      scopedProjectGroup === null &&
+      scopedSpaceName === null
+    ) {
       setProjectScopeKey(null);
     }
-  }, [allProjectSnapshotsReady, projectScopeKey, scopedProjectGroup, setProjectScopeKey]);
+  }, [
+    allProjectSnapshotsReady,
+    projectScopeKey,
+    scopedProjectGroup,
+    scopedSpaceName,
+    setProjectScopeKey,
+  ]);
   // Count-only subscription: the parent needs "are there draft rows" for the
   // empty state, while SidebarDraftBlock owns the per-keystroke content
   // subscription. Selecting a number keeps typing in a draft composer from
@@ -4740,7 +4768,9 @@ export default function Sidebar() {
                         label={
                           scopedProjectGroup
                             ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
+                            : scopedSpaceName
+                              ? `Filter threads by space: ${scopedSpaceName}`
+                              : "Filter threads by project"
                         }
                       />
                     }
@@ -4751,6 +4781,8 @@ export default function Sidebar() {
                       <span className="flex shrink-0">
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
                       </span>
+                    ) : scopedSpaceName ? (
+                      <LayersIcon className="size-4" />
                     ) : (
                       <FolderIcon className="size-4" />
                     )}
@@ -4813,6 +4845,8 @@ export default function Sidebar() {
                           >
                             {project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
+                            ) : item.isSpace ? (
+                              <LayersIcon className="size-4 shrink-0" />
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
                             )}
@@ -5321,6 +5355,8 @@ export default function Sidebar() {
                 </>
               ) : compact ? null : scopedProjectGroup ? (
                 `No threads in ${scopedProjectGroup.displayName} yet`
+              ) : scopedSpaceName ? (
+                `No threads in ${scopedSpaceName} yet`
               ) : (
                 "No threads yet"
               )}

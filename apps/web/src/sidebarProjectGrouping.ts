@@ -1,5 +1,10 @@
 import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
-import { buildProjectGroups, type ProjectGroupingSettings } from "./logicalProject";
+import {
+  buildProjectGroups,
+  buildProjectSpaceSections,
+  type ProjectGroupingSettings,
+  type ProjectSpaceSection,
+} from "./logicalProject";
 import type { Project } from "./types";
 
 export type EnvironmentPresence = "local-only" | "remote-only" | "mixed";
@@ -62,6 +67,47 @@ export function buildPhysicalToLogicalProjectKeyMap(input: {
     }
   }
   return mapping;
+}
+
+/**
+ * The space a sidebar group belongs to. A group can span environments and only
+ * one of its checkouts may carry the label, so any member's space counts.
+ */
+export function resolveSidebarProjectSpace(group: SidebarProjectSnapshot): string | null {
+  return group.space ?? group.memberProjects.find((member) => member.space != null)?.space ?? null;
+}
+
+export function buildSidebarSpaceSections(
+  groups: ReadonlyArray<SidebarProjectSnapshot>,
+): ReadonlyArray<ProjectSpaceSection<SidebarProjectSnapshot>> {
+  return buildProjectSpaceSections({ groups, resolveSpace: resolveSidebarProjectSpace });
+}
+
+/**
+ * The projects a sidebar scope selection covers, as `environmentId:projectId`
+ * keys, or null for "all projects". A scope key names either one project group
+ * or a whole space, and a key that matches neither — a project that was
+ * removed, a space nobody uses any more — also reads as null.
+ */
+export function resolveScopedProjectKeys(input: {
+  scopeKey: string | null;
+  groups: ReadonlyArray<SidebarProjectSnapshot>;
+  spaceSections: ReadonlyArray<ProjectSpaceSection<SidebarProjectSnapshot>>;
+}): ReadonlySet<string> | null {
+  if (input.scopeKey === null) return null;
+  const scopedProject = input.groups.find((group) => group.projectKey === input.scopeKey) ?? null;
+  const scopedGroups: ReadonlyArray<SidebarProjectSnapshot> =
+    scopedProject !== null
+      ? [scopedProject]
+      : (input.spaceSections.find((section) => section.key === input.scopeKey)?.groups ?? []);
+  if (scopedGroups.length === 0) return null;
+  return new Set(
+    scopedGroups.flatMap((group) =>
+      group.memberProjectRefs.map(
+        (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+      ),
+    ),
+  );
 }
 
 export function buildSidebarProjectSnapshots(input: {

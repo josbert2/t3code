@@ -320,3 +320,111 @@ export function buildProjectGroups<TProject extends EnvironmentProject>(input: {
     };
   });
 }
+
+/**
+ * One sidebar section: the project groups a user filed under a single space.
+ * `name` is null for the trailing section holding projects in no space.
+ */
+export interface ProjectSpaceSection<TGroup> {
+  readonly key: string;
+  readonly name: string | null;
+  readonly groups: ReadonlyArray<TGroup>;
+}
+
+export const UNSPACED_PROJECT_SECTION_KEY = "projects:unspaced";
+
+/**
+ * Spaces are matched case-insensitively so "Work" and "work" cannot show up as
+ * two identical-looking sections. The first spelling encountered is the one
+ * rendered.
+ */
+function projectSpaceKey(name: string): string {
+  return `space:${name.toLowerCase()}`;
+}
+
+/**
+ * A logical group can span environments and only one of its clones may carry
+ * the label, so any member's space counts, not just the representative's.
+ */
+export function resolveProjectGroupSpace(group: ProjectGroup<EnvironmentProject>): string | null {
+  const representativeSpace = group.representative.space ?? null;
+  if (representativeSpace !== null) {
+    return representativeSpace;
+  }
+  for (const member of group.members) {
+    const memberSpace = member.project.space ?? null;
+    if (memberSpace !== null) {
+      return memberSpace;
+    }
+  }
+  return null;
+}
+
+/**
+ * Splits grouped projects into the spaces a user filed them under, keeping
+ * group order inside each section. Named spaces sort alphabetically and the
+ * unspaced section always comes last, so adding a space never reshuffles the
+ * projects that are not in one.
+ *
+ * Takes a resolver because clients group projects into their own shapes;
+ * `resolveProjectGroupSpace` covers plain `ProjectGroup`s.
+ */
+export function buildProjectSpaceSections<TGroup>(input: {
+  readonly groups: ReadonlyArray<TGroup>;
+  readonly resolveSpace: (group: TGroup) => string | null;
+}): ReadonlyArray<ProjectSpaceSection<TGroup>> {
+  const named = new Map<string, { name: string; groups: TGroup[] }>();
+  const unspaced: TGroup[] = [];
+
+  for (const group of input.groups) {
+    const space = input.resolveSpace(group);
+    if (space === null) {
+      unspaced.push(group);
+      continue;
+    }
+    const key = projectSpaceKey(space);
+    const existing = named.get(key);
+    if (existing) {
+      existing.groups.push(group);
+    } else {
+      named.set(key, { name: space, groups: [group] });
+    }
+  }
+
+  const sections: ProjectSpaceSection<TGroup>[] = Array.from(named, ([key, section]) => ({
+    key,
+    name: section.name,
+    groups: section.groups,
+  })).sort(
+    (left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+      left.key.localeCompare(right.key),
+  );
+
+  if (unspaced.length > 0) {
+    sections.push({ key: UNSPACED_PROJECT_SECTION_KEY, name: null, groups: unspaced });
+  }
+
+  return sections;
+}
+
+/**
+ * Existing space names, for the picker that assigns one. Sorted the same way as
+ * the sidebar sections so the two lists read alike.
+ */
+export function listProjectSpaceNames(
+  projects: ReadonlyArray<EnvironmentProject>,
+): ReadonlyArray<string> {
+  const byKey = new Map<string, string>();
+  for (const project of projects) {
+    const space = project.space ?? null;
+    if (space === null) continue;
+    const key = projectSpaceKey(space);
+    if (!byKey.has(key)) {
+      byKey.set(key, space);
+    }
+  }
+  return Array.from(byKey.values()).sort((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: "base" }),
+  );
+}
