@@ -12,6 +12,7 @@ export type SettingsPath =
   | "/settings/projects"
   | "/settings/general"
   | "/settings/appearance"
+  | "/settings/sounds"
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
@@ -73,6 +74,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/projects": "Project",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
+  "/settings/sounds": "Sounds",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -724,6 +726,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/appearance": null,
+  "/settings/sounds": null,
   "/settings/snap-shot": null,
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.

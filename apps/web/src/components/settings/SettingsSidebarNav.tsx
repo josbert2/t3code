@@ -22,6 +22,7 @@ import {
   SearchIcon,
   Settings2Icon,
   XIcon,
+  Volume2Icon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useCompactSidebarEnabled } from "../../hooks/useSettings";
@@ -78,6 +79,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
 > = {
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
+  "/settings/sounds": Volume2Icon,
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,

@@ -50,6 +50,7 @@ function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void })
 /** Pages whose every row is saved on this client; the scope selects are hidden there. */
 const DEVICE_ONLY_PATHS = new Set([
   "/settings/appearance",
+  "/settings/sounds",
   "/settings/snap-shot",
   "/settings/connections",
 ]);

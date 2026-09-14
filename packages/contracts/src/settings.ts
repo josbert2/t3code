@@ -325,6 +325,43 @@ export const BoardAppearance = Schema.Struct({
 });
 export type BoardAppearance = typeof BoardAppearance.Type;
 
+/**
+ * The interaction cues the app can play, named as the sound library names them.
+ * A closed set so a stored preference cannot ask for a sound that does not
+ * exist, and so the picker can list them without reaching into the library.
+ */
+export const SoundCue = Schema.Literals([
+  "chime",
+  "sparkle",
+  "droplet",
+  "bloom",
+  "whisper",
+  "tick",
+  "press",
+  "release",
+  "toggle",
+  "success",
+  "error",
+  "page",
+  "loading",
+  "ready",
+  "pulse",
+  "scan",
+  "arrival",
+]);
+export type SoundCue = typeof SoundCue.Type;
+
+/** The moments worth hearing. Each one picks its own cue, or stays silent. */
+export const SoundEvent = Schema.Literals([
+  "card-moved",
+  "card-pinned",
+  "card-unpinned",
+  "thread-done",
+  "thread-attention",
+  "thread-failed",
+]);
+export type SoundEvent = typeof SoundEvent.Type;
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -483,6 +520,17 @@ export const ClientSettingsSchema = Schema.Struct({
     TrimmedNonEmptyString,
     SidebarProjectGroupingMode,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /**
+   * Sound is off until asked for: an app that starts making noise on a machine
+   * whose owner never chose that is a worse first impression than a silent one.
+   */
+  soundsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** 0 silences without forgetting which cues were chosen. */
+  soundVolume: Schema.Finite.pipe(Schema.withDecodingDefault(Effect.succeed(0.4))),
+  /** Keyed by SoundEvent. A null entry mutes that one moment on its own. */
+  soundCues: Schema.Record(TrimmedNonEmptyString, Schema.NullOr(SoundCue)).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   /** Whether board cards carry the agent status the sidebar shows. */
   boardShowThreadStatus: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   /** Keyed by board column. */
@@ -1551,6 +1599,9 @@ export const ClientSettingsPatch = Schema.Struct({
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
   compactSidebarEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
+  soundsEnabled: Schema.optionalKey(Schema.Boolean),
+  soundVolume: Schema.optionalKey(Schema.Finite),
+  soundCues: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, Schema.NullOr(SoundCue))),
   boardShowThreadStatus: Schema.optionalKey(Schema.Boolean),
   boardColumnAppearance: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, BoardAppearance)),
   boardProjectAppearance: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, BoardAppearance)),
