@@ -32,8 +32,10 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   resolveEnvironmentMachineKind,
+  type EnvironmentId,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
+  type ProjectId,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -1031,6 +1033,35 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
     </>
   ),
 };
+
+/** How the sidebar's project maps are keyed: environment and project together. */
+type ProjectLookupKey = `${EnvironmentId}:${ProjectId}`;
+
+/**
+ * Names the project a run of thread rows belongs to. Rendered outside the
+ * sortable collection, so it never becomes a drop target of its own.
+ */
+const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
+  project: EnvironmentProject | null;
+  label: string | null;
+}) {
+  if (props.label === null) return null;
+  return (
+    <li
+      data-sidebar-project-header
+      className="list-none px-2.5 pt-3 pb-1 first:pt-1 [contain-intrinsic-size:auto_28px] [content-visibility:auto]"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        {props.project ? (
+          <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+        ) : null}
+        <span className="min-w-0 flex-1 truncate font-medium text-secondary-label text-xs">
+          {props.label}
+        </span>
+      </div>
+    </li>
+  );
+});
 
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
@@ -2453,6 +2484,7 @@ export default function Sidebar() {
   const [snoozedFooter, setSnoozedFooter] = useState<HTMLUListElement | null>(null);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const compactThreadRows = useClientSettings((s) => s.sidebarCompactThreadRows);
+  const groupThreadsByProject = useClientSettings((s) => s.sidebarGroupThreadsByProject);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
@@ -5156,6 +5188,11 @@ export default function Sidebar() {
                           onNavigateToDraft={navigateToDraft}
                         />,
                       ];
+                      // Grouping is a render-time concern only: headers are plain
+                      // rows outside the sortable collection, so drag, drop and
+                      // ordering keep working on exactly the items they always had.
+                      let headerProjectKey: ProjectLookupKey | null = null;
+                      let headerSection: SidebarSection | null = null;
                       for (const item of sidebarListItems) {
                         const destination =
                           compact &&
@@ -5165,11 +5202,30 @@ export default function Sidebar() {
                             ? snoozedItems
                             : items;
                         if (item.kind === "thread") {
-                          destination.push(
-                            renderThreadRow(threadByKey.get(item.key)!, item.section),
-                          );
+                          const thread = threadByKey.get(item.key)!;
+                          const projectKey: ProjectLookupKey = `${thread.environmentId}:${thread.projectId}`;
+                          if (
+                            groupThreadsByProject &&
+                            !compact &&
+                            (projectKey !== headerProjectKey || item.section !== headerSection)
+                          ) {
+                            headerProjectKey = projectKey;
+                            headerSection = item.section;
+                            destination.push(
+                              <SidebarProjectHeaderRow
+                                key={`project-header:${item.section}:${projectKey}`}
+                                project={projectByKey.get(projectKey) ?? null}
+                                label={projectDisplayNameByKey.get(projectKey) ?? null}
+                              />,
+                            );
+                          }
+                          destination.push(renderThreadRow(thread, item.section));
                           continue;
                         }
+                        // A section boundary ends the run, so the first project of
+                        // the next section gets its own header.
+                        headerProjectKey = null;
+                        headerSection = null;
                         switch (item.marker) {
                           case "pinned-header":
                             items.push(
