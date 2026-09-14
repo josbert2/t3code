@@ -7,7 +7,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
  * remains data-driven.
  */
 export type ThreadActionMenuId =
-  | "new-thread-on-branch"
+  | "new-session-here"
   | "project-settings"
   | "pin"
   | "unpin"
@@ -28,6 +28,8 @@ export type ThreadActionMenuId =
 
 export interface ThreadActionMenuState {
   readonly branch: string | null;
+  /** Set when the thread runs in its own checkout, which a sibling session joins. */
+  readonly worktreePath: string | null;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly isSnoozed: boolean;
@@ -53,15 +55,18 @@ export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   return [
-    ...(state.branch
-      ? [
-          {
-            id: "new-thread-on-branch" as const,
-            label: `New thread on ${state.branch}`,
-            icon: "message-square-plus",
-          },
-        ]
-      : []),
+    // Always offered: a second session on the same work is the point of the
+    // sidebar, and a thread with no branch of its own had no way to start one.
+    {
+      id: "new-session-here" as const,
+      label:
+        state.worktreePath !== null
+          ? "New session in this worktree"
+          : state.branch !== null
+            ? `New session on ${state.branch}`
+            : "New session in this project",
+      icon: "message-square-plus",
+    },
     ...(state.supports.pinning
       ? [
           state.isPinned

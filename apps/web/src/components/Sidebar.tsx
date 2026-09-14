@@ -4394,6 +4394,7 @@ export default function Sidebar() {
           api.contextMenu.show(
             buildThreadActionMenuItems({
               branch: thread.branch ?? null,
+              worktreePath: thread.worktreePath ?? null,
               isPinned,
               isSettled,
               isSnoozed,
@@ -4432,9 +4433,10 @@ export default function Sidebar() {
             if (projectGroup) openProjectSettings(projectGroup);
             return;
           }
-          case "new-thread-on-branch": {
-            // Explicit branch carry-over: reuse the thread's worktree when it
-            // has one, otherwise its branch on the local checkout.
+          case "new-session-here": {
+            // Explicit carry-over: join the thread's worktree when it has one,
+            // otherwise its branch on the local checkout, otherwise just the
+            // project, which is what a thread with neither shares.
             const result = await settlePromise(() =>
               handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId), {
                 branch: thread.branch,

@@ -139,6 +139,7 @@ export function useThreadActionMenu(input: {
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
         const items = buildThreadActionMenuItems({
           branch: thread.branch ?? null,
+          worktreePath: thread.worktreePath ?? null,
           isPinned: thread.pinnedAt != null,
           isSettled: supports.settlement && thread.settledOverride === "settled",
           isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
@@ -206,9 +207,10 @@ export function useThreadActionMenu(input: {
             });
             return;
           }
-          case "new-thread-on-branch": {
-            // Explicit branch carry-over: reuse the thread's worktree when it
-            // has one, otherwise its branch on the local checkout.
+          case "new-session-here": {
+            // Explicit carry-over: join the thread's worktree when it has one,
+            // otherwise its branch on the local checkout, otherwise just the
+            // project, which is what a thread with neither shares.
             const result = await settlePromise(() =>
               handleNewThread(scopeProjectRef(threadRef.environmentId, thread.projectId), {
                 branch: thread.branch,
