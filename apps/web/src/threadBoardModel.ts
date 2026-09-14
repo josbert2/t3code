@@ -42,6 +42,7 @@ export function threadBoardInput(thread: EnvironmentThreadShell): ThreadBoardInp
   return {
     archivedAt: thread.archivedAt,
     settledAt: thread.settledAt,
+    boardColumnOverride: thread.boardColumnOverride ?? null,
     pullRequest:
       link === null
         ? null

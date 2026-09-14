@@ -2,14 +2,25 @@ import type {
   PullRequestChecksState,
   PullRequestReviewDecision,
   PullRequestState,
+  ThreadBoardColumn,
 } from "@t3tools/contracts";
 
 /**
  * Board columns, left to right. The order is the order work moves in, so a
- * card only ever travels forward unless the work itself goes backwards.
+ * card only ever travels forward unless the work itself goes backwards — or
+ * unless a person pins it somewhere.
+ *
+ * The column names are the contract's; this list only fixes their order. A
+ * column added to one and not the other stops compiling.
  */
-export const THREAD_BOARD_COLUMNS = ["pending", "iterating", "review", "ready", "archive"] as const;
-export type ThreadBoardColumn = (typeof THREAD_BOARD_COLUMNS)[number];
+export const THREAD_BOARD_COLUMNS = [
+  "pending",
+  "iterating",
+  "review",
+  "ready",
+  "archive",
+] as const satisfies ReadonlyArray<ThreadBoardColumn>;
+export type { ThreadBoardColumn };
 
 /** What a change request contributes to a card's column. */
 export interface ThreadBoardPullRequest {
@@ -23,6 +34,8 @@ export interface ThreadBoardInput {
   readonly archivedAt?: string | null;
   readonly settledAt?: string | null;
   readonly pullRequest?: ThreadBoardPullRequest | null;
+  /** Where a person put this card by hand. Outranks everything below. */
+  readonly boardColumnOverride?: ThreadBoardColumn | null;
 }
 
 /**
@@ -35,6 +48,12 @@ export interface ThreadBoardInput {
  * archive.
  */
 export function resolveThreadBoardColumn(input: ThreadBoardInput): ThreadBoardColumn {
+  // A person who dragged this card said something the derivation cannot know.
+  // It holds until they hand the card back, which is what clearing the
+  // override means — not until the next pull request event disagrees.
+  if (input.boardColumnOverride != null) {
+    return input.boardColumnOverride;
+  }
   if (input.archivedAt != null) {
     return "archive";
   }

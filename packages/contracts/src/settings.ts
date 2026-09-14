@@ -287,6 +287,44 @@ export const LoadBalancingWeights = Schema.Record(
 
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
+/**
+ * Colors a person can put on a column, a project or a single card.
+ *
+ * A closed set on purpose: these names index a lookup of Tailwind classes, and
+ * a free string would either have to be interpolated into a class name (which
+ * the compiler cannot see, so the class never ships) or trusted into the DOM.
+ */
+export const BoardAppearanceColor = Schema.Literals([
+  "sky",
+  "orange",
+  "amber",
+  "emerald",
+  "rose",
+  "violet",
+  "slate",
+]);
+export type BoardAppearanceColor = typeof BoardAppearanceColor.Type;
+
+/** Icons offered alongside the colors. Closed for the same reason. */
+export const BoardAppearanceIcon = Schema.Literals([
+  "circle",
+  "star",
+  "flag",
+  "bug",
+  "rocket",
+  "flame",
+  "leaf",
+  "bookmark",
+]);
+export type BoardAppearanceIcon = typeof BoardAppearanceIcon.Type;
+
+/** Either half is optional: a color with no icon is a common choice. */
+export const BoardAppearance = Schema.Struct({
+  color: Schema.optional(Schema.NullOr(BoardAppearanceColor)),
+  icon: Schema.optional(Schema.NullOr(BoardAppearanceIcon)),
+});
+export type BoardAppearance = typeof BoardAppearance.Type;
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -445,6 +483,20 @@ export const ClientSettingsSchema = Schema.Struct({
     TrimmedNonEmptyString,
     SidebarProjectGroupingMode,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /** Whether board cards carry the agent status the sidebar shows. */
+  boardShowThreadStatus: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Keyed by board column. */
+  boardColumnAppearance: Schema.Record(TrimmedNonEmptyString, BoardAppearance).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  /** Keyed by "<environmentId>:<projectId>", the same key the sidebar groups by. */
+  boardProjectAppearance: Schema.Record(TrimmedNonEmptyString, BoardAppearance).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  /** Keyed by scoped thread key, so one card can be marked without its project. */
+  boardThreadAppearance: Schema.Record(TrimmedNonEmptyString, BoardAppearance).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),
@@ -1499,6 +1551,10 @@ export const ClientSettingsPatch = Schema.Struct({
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
   compactSidebarEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
+  boardShowThreadStatus: Schema.optionalKey(Schema.Boolean),
+  boardColumnAppearance: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, BoardAppearance)),
+  boardProjectAppearance: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, BoardAppearance)),
+  boardThreadAppearance: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, BoardAppearance)),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
   ),

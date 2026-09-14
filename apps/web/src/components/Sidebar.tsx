@@ -105,6 +105,15 @@ import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
+import { projectEnvironment } from "../state/projects";
+import { useUpdateClientSettings } from "../hooks/useSettings";
+import type { BoardAppearance } from "@t3tools/contracts/settings";
+import {
+  BOARD_APPEARANCE_DOT_CLASS,
+  BOARD_APPEARANCE_ICONS,
+  BOARD_APPEARANCE_TEXT_CLASS,
+} from "./board/boardAppearance";
+import { buildProjectGroupMenuItems, parseBoardMenuId } from "./board/boardContextMenu";
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -134,6 +143,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { SidebarCompletedTime } from "./sidebar/SidebarCompletedTime";
+import { resolveThreadStatusPresentation, THREAD_STATUS_ICONS } from "./threadStatusPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
@@ -178,6 +188,8 @@ import {
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
   type SidebarDropVerb,
+  moreUrgentSidebarStatus,
+  type SidebarThreadStatus,
   resolveSidebarThreadStatus,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
@@ -1045,13 +1057,55 @@ type ProjectLookupKey = `${EnvironmentId}:${ProjectId}`;
  * Names the project a run of thread rows belongs to. Rendered outside the
  * sortable collection, so it never becomes a drop target of its own.
  */
+function ProjectAppearanceIcon({
+  icon,
+  color,
+}: {
+  icon: NonNullable<BoardAppearance["icon"]>;
+  color: BoardAppearance["color"];
+}) {
+  const Icon = BOARD_APPEARANCE_ICONS[icon];
+  return (
+    <Icon
+      aria-hidden
+      className={cn(
+        "size-4 shrink-0",
+        color == null ? "text-icon-muted" : BOARD_APPEARANCE_TEXT_CLASS[color],
+      )}
+    />
+  );
+}
+
 const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
   project: EnvironmentProject | null;
   label: string | null;
   expanded: boolean;
   threadCount: number;
+  /** The most urgent thing happening inside, or nothing when all is quiet. */
+  status: SidebarThreadStatus | null;
+  /** Something inside finished and nobody has read it yet. */
+  unread: boolean;
+  /** When the run was last touched, in the same short form the rows use. */
+  timeLabel: string;
+  /** The mark a person put on this run, which stands in for its favicon. */
+  appearance: BoardAppearance | undefined;
+  renaming: boolean;
   onToggle: () => void;
+  onContextMenu: (position: { x: number; y: number }) => void;
+  onRenameSubmit: (title: string) => void;
+  onRenameCancel: () => void;
 }) {
+  // A run with nothing running still has something to say when a thread
+  // finished unseen, which is what the rows used to report one by one.
+  const status =
+    props.status === null && !props.unread
+      ? null
+      : resolveThreadStatusPresentation({
+          status: props.status ?? "ready",
+          isUnread: props.unread,
+          isWoke: false,
+        });
+  const StatusIcon = status === null ? null : THREAD_STATUS_ICONS[status.icon];
   if (props.label === null) return null;
   return (
     <li
@@ -1063,6 +1117,11 @@ const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
         aria-expanded={props.expanded}
         className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
         onClick={props.onToggle}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onContextMenu({ x: event.clientX, y: event.clientY });
+        }}
       >
         <ChevronDownIcon
           className={cn(
@@ -1070,12 +1129,60 @@ const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
             !props.expanded && "-rotate-90",
           )}
         />
+        {/* The favicon is how a person recognizes the project; a mark they
+            chose sits next to it rather than taking its place. */}
         {props.project ? (
           <ProjectFavicon project={props.project} className="size-4 shrink-0" />
         ) : null}
-        <span className="min-w-0 flex-1 truncate font-medium text-secondary-label text-xs">
-          {props.label}
-        </span>
+        {props.appearance?.icon != null ? (
+          <ProjectAppearanceIcon
+            icon={props.appearance.icon}
+            color={props.appearance.color ?? null}
+          />
+        ) : props.appearance?.color != null ? (
+          <span
+            aria-hidden
+            className={cn(
+              "size-2.5 shrink-0 rounded-full",
+              BOARD_APPEARANCE_DOT_CLASS[props.appearance.color],
+            )}
+          />
+        ) : null}
+        {props.renaming ? (
+          <input
+            autoFocus
+            defaultValue={props.label}
+            // The header is a button; typing inside it must not fold the run.
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Enter") props.onRenameSubmit(event.currentTarget.value);
+              if (event.key === "Escape") props.onRenameCancel();
+            }}
+            onBlur={(event) => props.onRenameSubmit(event.currentTarget.value)}
+            className="min-w-0 flex-1 rounded-sm bg-transparent font-medium text-secondary-label text-xs outline-none ring-1 ring-ring"
+          />
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-medium text-secondary-label text-xs">
+            {props.label}
+          </span>
+        )}
+        {/* A folded run still has to say whether anything inside is running. */}
+        {status !== null && StatusIcon !== null ? (
+          <StatusIcon
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0",
+              status.className,
+              status.icon === "working" && "animate-spin",
+            )}
+          />
+        ) : null}
+        {props.timeLabel === "" ? null : (
+          <span className="shrink-0 text-secondary-label text-xs tabular-nums">
+            {props.timeLabel}
+          </span>
+        )}
         {/* The count is what a collapsed group has left to say. */}
         <span className="shrink-0 text-secondary-label text-xs tabular-nums">
           {props.threadCount}
@@ -1257,57 +1364,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     isActive: props.isActive,
     isSelected,
   });
-  // Status hues follow the system-wide convention set by sidebar v1 and the
-  // mobile Live Activity/widgets (amber approval, indigo input, sky working)
-  // so a thread reads the same color everywhere it surfaces.
-  const topStatus =
-    status === "working"
-      ? {
-          label: "Working",
-          icon: "working" as const,
-          // No shimmer: a label that animates forever is noise in a sidebar
-          // full of them (and repaints every vsync on high-refresh displays).
-          className: "text-sky-600 dark:text-sky-400",
-        }
-      : status === "monitoring"
-        ? {
-            // Monitoring is calm background presence, not active progress
-            // (monitoring-pill D6), so it keeps the label at full strength.
-            label: "Monitoring",
-            icon: "monitoring" as const,
-            className: "text-foreground dark:text-white",
-          }
-        : status === "approval"
-          ? {
-              label: "Approval",
-              icon: "approval" as const,
-              className: "text-amber-700 dark:text-amber-300",
-            }
-          : status === "input"
-            ? {
-                label: "Input",
-                icon: "input" as const,
-                className: "text-indigo-600 dark:text-indigo-300",
-              }
-            : status === "failed"
-              ? {
-                  label: "Failed",
-                  icon: "failed" as const,
-                  className: "text-red-700 dark:text-red-300",
-                }
-              : isWoke
-                ? {
-                    label: "Woke",
-                    icon: "woke" as const,
-                    className: "text-amber-700 dark:text-amber-300",
-                  }
-                : isUnread
-                  ? {
-                      label: "Done",
-                      icon: "done" as const,
-                      className: "text-emerald-700 dark:text-emerald-300",
-                    }
-                  : null;
+  const rowStatus = resolveThreadStatusPresentation({ status, isUnread, isWoke });
+  // Inside a project run the header speaks for the whole group, so a row that
+  // repeated it would say the same thing twice. Woke is the exception: it is
+  // not a report but a button, and the group header cannot dismiss it.
+  const topStatus = props.grouped && rowStatus?.icon !== "woke" ? null : rowStatus;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1540,7 +1601,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
     // Indented and a size down from the project header above it, so the run
     // reads as that project's threads rather than as more top-level rows.
-    props.grouped && "ms-3 w-[calc(100%-0.75rem)]",
+    props.grouped && "ms-5 w-[calc(100%-1.25rem)]",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground"
@@ -1972,17 +2033,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   }
 
   const compactRows = props.compact;
-  const CompactStatusIcon = topStatus
-    ? {
-        working: CircleDashedIcon,
-        monitoring: EyeIcon,
-        approval: ShieldQuestionIcon,
-        input: MessageCircleQuestionIcon,
-        failed: CircleAlertIcon,
-        woke: AlarmClockIcon,
-        done: CircleCheckIcon,
-      }[topStatus.icon]
-    : null;
+  const CompactStatusIcon = topStatus ? THREAD_STATUS_ICONS[topStatus.icon] : null;
   const compactCompletedAt =
     compactRows && status === "ready" && !isWokeStatus
       ? (thread.latestTurn?.completedAt ?? null)
@@ -2515,6 +2566,79 @@ export default function Sidebar() {
   const compactThreadRows = useClientSettings((s) => s.sidebarCompactThreadRows);
   const groupThreadsByProject = useClientSettings((s) => s.sidebarGroupThreadsByProject);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  // Read whole rather than per row: the group headers need it to tell a run
+  // that finished from one nobody has looked at yet.
+  const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
+  const projectAppearance = useClientSettings((settings) => settings.boardProjectAppearance);
+  const updateClientSettings = useUpdateClientSettings();
+  const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
+  const deleteProject = useAtomCommand(projectEnvironment.delete, { reportFailure: false });
+  const [renamingProjectKey, setRenamingProjectKey] = useState<ProjectLookupKey | null>(null);
+
+  const handleProjectRename = useCallback(
+    (project: EnvironmentProject, title: string) => {
+      setRenamingProjectKey(null);
+      const trimmed = title.trim();
+      if (trimmed === "" || trimmed === project.title) return;
+      void updateProject({
+        environmentId: project.environmentId,
+        input: { projectId: project.id, title: trimmed },
+      });
+    },
+    [updateProject],
+  );
+
+  const handleProjectHeaderContextMenu = useCallback(
+    (project: EnvironmentProject | null, position: { x: number; y: number }) => {
+      if (project === null) return;
+      void (async () => {
+        const api = readLocalApi();
+        if (!api) return;
+        const key: ProjectLookupKey = `${project.environmentId}:${project.id}`;
+        const current = projectAppearance[key];
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(
+            buildProjectGroupMenuItems({ appearance: current ?? null }),
+            position,
+          ),
+        );
+        if (clicked._tag === "Failure" || clicked.value == null) return;
+        const action = parseBoardMenuId(clicked.value);
+        if (action === null) return;
+        if (action.kind === "rename") {
+          setRenamingProjectKey(key);
+          return;
+        }
+        if (action.kind === "delete") {
+          // Removing a project takes its threads with it, so it asks first.
+          const confirmed = await api.dialogs.confirm(
+            `Delete "${project.title}"? Its threads go with it.`,
+            { variant: "destructive" },
+          );
+          if (!confirmed) return;
+          void deleteProject({
+            environmentId: project.environmentId,
+            input: { projectId: project.id, force: true },
+          });
+          return;
+        }
+        if (action.kind !== "color" && action.kind !== "icon") return;
+        const next =
+          action.kind === "color"
+            ? { ...current, color: action.color }
+            : { ...current, icon: action.icon };
+        // An entry with nothing left in it is noise in a settings file.
+        const cleaned =
+          next.color == null && next.icon == null
+            ? Object.fromEntries(
+                Object.entries(projectAppearance).filter(([entry]) => entry !== key),
+              )
+            : { ...projectAppearance, [key]: next };
+        updateClientSettings({ boardProjectAppearance: cleaned });
+      })();
+    },
+    [deleteProject, projectAppearance, updateClientSettings],
+  );
   const setProjectExpandedInStore = useUiStateStore((store) => store.setProjectExpanded);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
@@ -3737,11 +3861,31 @@ export default function Sidebar() {
   // Include every visible row in the measured order. Older servers disable
   // pickup on their rows without changing where those rows render.
   const sidebarListItems = useMemo((): readonly SidebarListItem[] => {
+    // Grouping only draws a header when the project changes, so threads of one
+    // project have to arrive together or the run breaks and re-opens with every
+    // interleaved row. Projects keep the order their most recent thread earned,
+    // and inside a project the existing sort survives untouched.
+    const gatherByProject = (
+      list: readonly EnvironmentThreadShell[],
+      section: SidebarSection,
+    ): readonly EnvironmentThreadShell[] => {
+      // The pinned shelf is arranged by hand and carries its own order key.
+      // Regrouping it would throw away an arrangement a person made on purpose.
+      if (!groupThreadsByProject || compact || section === "pinned") return list;
+      const runs = new Map<string, EnvironmentThreadShell[]>();
+      for (const thread of list) {
+        const key = `${thread.environmentId}:${thread.projectId}`;
+        const run = runs.get(key);
+        if (run === undefined) runs.set(key, [thread]);
+        else run.push(thread);
+      }
+      return [...runs.values()].flat();
+    };
     const rowsOf = (
       list: readonly EnvironmentThreadShell[],
       section: SidebarSection,
     ): SidebarListItem[] =>
-      list.map((thread) => {
+      gatherByProject(list, section).map((thread) => {
         const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
         return { kind: "thread", key, section };
       });
@@ -3774,6 +3918,7 @@ export default function Sidebar() {
   }, [
     activeThreads,
     compact,
+    groupThreadsByProject,
     pinnedThreads,
     renderedSettledThreads,
     settledThreads.length,
@@ -5223,17 +5368,41 @@ export default function Sidebar() {
                       // Grouping is a render-time concern only: headers are plain
                       // rows outside the sortable collection, so drag, drop and
                       // ordering keep working on exactly the items they always had.
-                      const threadCountByGroup = new Map<string, number>();
+                      const groupSummaries = new Map<
+                        string,
+                        {
+                          count: number;
+                          status: SidebarThreadStatus | null;
+                          unread: boolean;
+                          newestAt: string;
+                        }
+                      >();
                       if (groupThreadsByProject && !compact) {
                         for (const item of sidebarListItems) {
                           if (item.kind !== "thread") continue;
                           const thread = threadByKey.get(item.key);
                           if (thread === undefined) continue;
                           const groupKey = `${item.section}:${thread.environmentId}:${thread.projectId}`;
-                          threadCountByGroup.set(
-                            groupKey,
-                            (threadCountByGroup.get(groupKey) ?? 0) + 1,
-                          );
+                          const current = groupSummaries.get(groupKey);
+                          const status = resolveSidebarThreadStatus(thread);
+                          const touchedAt = thread.latestUserMessageAt ?? thread.updatedAt;
+                          groupSummaries.set(groupKey, {
+                            count: (current?.count ?? 0) + 1,
+                            // The run reports the most urgent thing inside it:
+                            // a folded group must not hide an approval behind a
+                            // quieter sibling.
+                            status: moreUrgentSidebarStatus(current?.status ?? null, status),
+                            unread:
+                              (current?.unread ?? false) ||
+                              hasUnseenCompletion({
+                                ...thread,
+                                lastVisitedAt: threadLastVisitedAtById[item.key],
+                              }),
+                            newestAt:
+                              current === undefined || current.newestAt < touchedAt
+                                ? touchedAt
+                                : current.newestAt,
+                          });
                         }
                       }
                       let headerProjectKey: ProjectLookupKey | null = null;
@@ -5262,16 +5431,38 @@ export default function Sidebar() {
                             ]);
                             const toggleKey = projectKey;
                             const expanded = !headerCollapsed;
+                            const groupSummary = groupSummaries.get(
+                              `${item.section}:${thread.environmentId}:${thread.projectId}`,
+                            );
                             destination.push(
                               <SidebarProjectHeaderRow
                                 key={`project-header:${item.section}:${projectKey}`}
                                 project={projectByKey.get(projectKey) ?? null}
                                 label={projectDisplayNameByKey.get(projectKey) ?? null}
                                 expanded={expanded}
-                                threadCount={
-                                  threadCountByGroup.get(
-                                    `${item.section}:${thread.environmentId}:${thread.projectId}`,
-                                  ) ?? 0
+                                threadCount={groupSummary?.count ?? 0}
+                                status={groupSummary?.status ?? null}
+                                unread={groupSummary?.unread ?? false}
+                                appearance={projectAppearance[projectKey]}
+                                renaming={renamingProjectKey === projectKey}
+                                onContextMenu={(position) =>
+                                  handleProjectHeaderContextMenu(
+                                    projectByKey.get(projectKey) ?? null,
+                                    position,
+                                  )
+                                }
+                                onRenameSubmit={(title) => {
+                                  const project = projectByKey.get(projectKey);
+                                  if (project !== undefined) handleProjectRename(project, title);
+                                  else setRenamingProjectKey(null);
+                                }}
+                                onRenameCancel={() => setRenamingProjectKey(null)}
+                                timeLabel={
+                                  groupSummary === undefined
+                                    ? ""
+                                    : compactSidebarTimeLabel(
+                                        formatRelativeTimeLabel(groupSummary.newestAt),
+                                      )
                                 }
                                 onToggle={() => setProjectExpandedInStore(toggleKey, !expanded)}
                               />,

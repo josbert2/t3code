@@ -842,6 +842,33 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
+/**
+ * Which of two statuses a group should report. A folded run shows one line for
+ * many threads, so it has to surface the one a person would act on first
+ * rather than whichever thread happened to sort last.
+ *
+ * "ready" carries no urgency of its own and reads as null here: a run with
+ * nothing running says nothing.
+ */
+const SIDEBAR_STATUS_URGENCY: ReadonlyArray<SidebarThreadStatus> = [
+  "approval",
+  "input",
+  "failed",
+  "working",
+  "monitoring",
+];
+
+export function moreUrgentSidebarStatus(
+  current: SidebarThreadStatus | null,
+  candidate: SidebarThreadStatus,
+): SidebarThreadStatus | null {
+  const candidateRank = SIDEBAR_STATUS_URGENCY.indexOf(candidate);
+  if (candidateRank === -1) return current;
+  if (current === null) return candidate;
+  const currentRank = SIDEBAR_STATUS_URGENCY.indexOf(current);
+  return candidateRank < currentRank ? candidate : current;
+}
+
 /** First VALID timestamp wins: `a ?? b` falls through on null, but a present-
     yet-malformed string must also fall through to the next candidate rather
     than sink the row to the epoch. */

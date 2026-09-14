@@ -715,6 +715,22 @@ export const ThreadPullRequestLink = Schema.Struct({
 });
 export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 
+/**
+ * Board columns, left to right. The order is the order work moves in.
+ *
+ * This lives in the contract rather than in the client because a column is now
+ * something a person can pin a thread to, and that choice outlives the session
+ * that made it.
+ */
+export const ThreadBoardColumn = Schema.Literals([
+  "pending",
+  "iterating",
+  "review",
+  "ready",
+  "archive",
+]);
+export type ThreadBoardColumn = typeof ThreadBoardColumn.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -763,6 +779,10 @@ export const OrchestrationThread = Schema.Struct({
   // Manual Active placement. Keyless threads retain their creation/re-entry
   // order above the arranged run. Settling clears this slot.
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Column a person pinned this thread to, which outranks the column its own
+  // state would derive. Null lets it derive again. Optional so old
+  // servers/clients interop; absent means never pinned.
+  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -833,6 +853,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Column a person pinned this thread to, which outranks the column its own
+  // state would derive. Null lets it derive again. Optional so old
+  // servers/clients interop; absent means never pinned.
+  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -1159,6 +1183,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
 }).check(
   Schema.makeFilter(
     (input) =>
@@ -1695,6 +1720,10 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   // Order updates use this existing event so older clients can ignore the
   // new field while continuing to decode the event stream.
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Column a person pinned this thread to, which outranks the column its own
+  // state would derive. Null lets it derive again. Optional so old
+  // servers/clients interop; absent means never pinned.
+  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
   title: Schema.optional(TrimmedNonEmptyString),
   /** Intent marker consumed by the title-generation reactor. Keeping this on
       the existing event lets older clients safely ignore the new field. */
