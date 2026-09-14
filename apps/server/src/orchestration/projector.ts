@@ -7,6 +7,7 @@ import type {
   ThreadPullRequestKey,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import { deriveThreadBoardColumn, threadBoardFacts } from "@t3tools/shared/threadBoardColumn";
 import {
   isImportedAgentSessionMessageId,
   OrchestrationCheckpointSummary,
@@ -115,6 +116,27 @@ function updateThread(
   patch: ThreadPatch,
 ): OrchestrationThread[] {
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
+}
+
+/**
+ * Applies a patch and re-derives the thread's board column from what it became.
+ *
+ * The column is stored rather than re-derived by every client, so each surface
+ * draws the same board and the server stays the one that decides. Only events
+ * that move a delivery fact route through here; a column a person set by hand
+ * arrives as its own patch and is written as given, holding until one of those
+ * facts actually changes.
+ */
+function updateThreadDerivingBoardColumn(
+  threads: ReadonlyArray<OrchestrationThread>,
+  threadId: ThreadId,
+  patch: ThreadPatch,
+): OrchestrationThread[] {
+  return threads.map((thread) => {
+    if (thread.id !== threadId) return thread;
+    const next = { ...thread, ...patch };
+    return { ...next, boardColumn: deriveThreadBoardColumn(threadBoardFacts(next)) };
+  });
 }
 
 /** Patch that swaps a thread's links and re-derives the legacy single-PR field from them. */
@@ -470,7 +492,7 @@ export function projectEvent(
       return decodeForEvent(ThreadArchivedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
+          threads: updateThreadDerivingBoardColumn(nextBase.threads, payload.threadId, {
             archivedAt: payload.archivedAt,
             titleRegeneration: null,
             updatedAt: payload.updatedAt,
@@ -482,7 +504,7 @@ export function projectEvent(
       return decodeForEvent(ThreadUnarchivedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
+          threads: updateThreadDerivingBoardColumn(nextBase.threads, payload.threadId, {
             archivedAt: null,
             updatedAt: payload.updatedAt,
           }),
@@ -493,7 +515,7 @@ export function projectEvent(
       return decodeForEvent(ThreadSettledPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
+          threads: updateThreadDerivingBoardColumn(nextBase.threads, payload.threadId, {
             settledOverride: "settled",
             settledAt: payload.settledAt,
             unsettledAt: null,
@@ -509,7 +531,7 @@ export function projectEvent(
           const existing = nextBase.threads.find((thread) => thread.id === payload.threadId);
           return {
             ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
+            threads: updateThreadDerivingBoardColumn(nextBase.threads, payload.threadId, {
               settledOverride: payload.reason === "user" ? "active" : null,
               settledAt: null,
               // Re-entry stamp for active-list ordering. A thread already
@@ -620,9 +642,7 @@ export function projectEvent(
               ...(payload.activeOrderKey !== undefined
                 ? { activeOrderKey: payload.activeOrderKey }
                 : {}),
-              ...(payload.boardColumnOverride !== undefined
-                ? { boardColumnOverride: payload.boardColumnOverride }
-                : {}),
+              ...(payload.boardColumn !== undefined ? { boardColumn: payload.boardColumn } : {}),
               ...(payload.branchPullRequest !== undefined
                 ? { branchPullRequest: payload.branchPullRequest }
                 : {}),
@@ -647,7 +667,7 @@ export function projectEvent(
           }
           return {
             ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
+            threads: updateThreadDerivingBoardColumn(nextBase.threads, payload.threadId, {
               ...pullRequestsPatch(
                 thread,
                 upsertPullRequestLink(thread.pullRequests, payload.link),
@@ -673,7 +693,7 @@ export function projectEvent(
           }
           return {
             ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
+            threads: updateThreadDerivingBoardColumn(nextBase.threads, payload.threadId, {
               ...pullRequestsPatch(
                 thread,
                 removePullRequestLink(thread.pullRequests, payload),
@@ -708,7 +728,7 @@ export function projectEvent(
           );
           return {
             ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
+            threads: updateThreadDerivingBoardColumn(nextBase.threads, payload.threadId, {
               ...pullRequestsPatch(thread, pullRequests, nextBase.projects),
               updatedAt: payload.updatedAt,
             }),

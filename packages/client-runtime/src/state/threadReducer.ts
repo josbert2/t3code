@@ -275,8 +275,8 @@ export function applyThreadDetailEvent(
           ...(event.payload.activeOrderKey !== undefined
             ? { activeOrderKey: event.payload.activeOrderKey }
             : {}),
-          ...(event.payload.boardColumnOverride !== undefined
-            ? { boardColumnOverride: event.payload.boardColumnOverride }
+          ...(event.payload.boardColumn !== undefined
+            ? { boardColumn: event.payload.boardColumn }
             : {}),
           updatedAt: event.payload.updatedAt,
         },

@@ -7,25 +7,25 @@ import {
 } from "./threadBoard.ts";
 
 describe("resolveThreadBoardColumn", () => {
-  it("keeps a working thread pending until it settles or opens a change request", () => {
-    expect(resolveThreadBoardColumn({})).toBe("pending");
+  it("keeps a working thread building until it settles or opens a change request", () => {
+    expect(resolveThreadBoardColumn({})).toBe("building");
     expect(resolveThreadBoardColumn({ settledAt: "2026-09-13T00:00:00.000Z" })).toBe("archive");
   });
 
-  it("sends drafts, requested changes and failing checks back to iterating", () => {
+  it("sends drafts, requested changes and failing checks back to validating", () => {
     expect(resolveThreadBoardColumn({ pullRequest: { state: "open", isDraft: true } })).toBe(
-      "iterating",
+      "validating",
     );
     expect(
       resolveThreadBoardColumn({
         pullRequest: { state: "open", reviewDecision: "changes-requested" },
       }),
-    ).toBe("iterating");
+    ).toBe("validating");
     expect(
       resolveThreadBoardColumn({
         pullRequest: { state: "open", reviewDecision: "approved", checksState: "failing" },
       }),
-    ).toBe("iterating");
+    ).toBe("validating");
   });
 
   it("promotes to ready only once approval and checks agree", () => {
@@ -43,12 +43,12 @@ describe("resolveThreadBoardColumn", () => {
       resolveThreadBoardColumn({
         pullRequest: { state: "open", reviewDecision: "approved", checksState: "pending" },
       }),
-    ).toBe("review");
+    ).toBe("needs_review");
     expect(
       resolveThreadBoardColumn({
         pullRequest: { state: "open", reviewDecision: "review-required" },
       }),
-    ).toBe("review");
+    ).toBe("needs_review");
   });
 
   it("archives a thread once its change request lands or is dropped", () => {
@@ -63,7 +63,7 @@ describe("resolveThreadBoardColumn", () => {
         settledAt: "2026-09-13T00:00:00.000Z",
         pullRequest: { state: "open", reviewDecision: "review-required" },
       }),
-    ).toBe("review");
+    ).toBe("needs_review");
   });
 });
 
@@ -78,10 +78,10 @@ describe("buildThreadBoard", () => {
 
     const board = buildThreadBoard({ threads, resolveInput: (thread) => thread.board });
 
-    expect(board.pending.map((thread) => thread.id)).toEqual(["a", "c"]);
-    expect(board.review.map((thread) => thread.id)).toEqual(["b"]);
+    expect(board.building.map((thread) => thread.id)).toEqual(["a", "c"]);
+    expect(board.needs_review.map((thread) => thread.id)).toEqual(["b"]);
     expect(board.archive.map((thread) => thread.id)).toEqual(["d"]);
-    expect(board.iterating).toEqual([]);
+    expect(board.validating).toEqual([]);
     expect(board.ready).toEqual([]);
   });
 });

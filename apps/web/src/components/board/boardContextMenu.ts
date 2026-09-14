@@ -5,7 +5,7 @@ import type {
   BoardAppearanceIcon,
 } from "@t3tools/contracts/settings";
 import {
-  THREAD_BOARD_COLUMNS,
+  THREAD_BOARD_LANES,
   type ThreadBoardColumn,
 } from "@t3tools/client-runtime/state/thread-board";
 
@@ -114,7 +114,7 @@ export function buildBoardCardMenuItems(input: {
       label: "Pin to column",
       separatorBefore: true,
       children: [
-        ...THREAD_BOARD_COLUMNS.map((column) => ({
+        ...THREAD_BOARD_LANES.map((column) => ({
           id: `pin:${column}`,
           label: mark(input.pinnedColumn === column, THREAD_BOARD_COLUMN_LABELS[column]),
         })),
@@ -168,7 +168,7 @@ export function parseBoardMenuId(id: string): BoardMenuAction | null {
   if (id === "color:clear") return { kind: "color", color: null };
   if (id === "icon:clear") return { kind: "icon", icon: null };
 
-  const pinned = THREAD_BOARD_COLUMNS.find((column) => id === `pin:${column}`);
+  const pinned = THREAD_BOARD_LANES.find((column) => id === `pin:${column}`);
   if (pinned !== undefined) return { kind: "pin", column: pinned };
 
   const colored = BOARD_APPEARANCE_COLORS.find((color) => id === `color:${color}`);

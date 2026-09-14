@@ -1,7 +1,7 @@
 import {
   buildThreadBoard,
   resolveThreadBoardColumn,
-  THREAD_BOARD_COLUMNS,
+  THREAD_BOARD_LANES,
   type ThreadBoardColumn,
 } from "@t3tools/client-runtime/state/thread-board";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
@@ -31,6 +31,7 @@ import { pullRequestEnvironment } from "../../state/pullRequests";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useProjects, useThreadShells } from "../../state/entities";
@@ -56,6 +57,9 @@ import {
 } from "../Sidebar.logic";
 import { resolveThreadStatusPresentation, THREAD_STATUS_ICONS } from "../threadStatusPresentation";
 import { useFlipCards } from "./useFlipCards";
+import { playAppSound } from "../../sounds";
+import { useSyncSounds, useThreadStatusSounds } from "../../hooks/useSounds";
+import type { SoundEvent } from "@t3tools/contracts/settings";
 import {
   BOARD_APPEARANCE_DOT_CLASS,
   BOARD_APPEARANCE_ICONS,
@@ -72,17 +76,13 @@ import {
   parseBoardMenuId,
 } from "./boardContextMenu";
 
-/**
- * Everything a project ever finished ends up archived, and a column that
- * renders all of it would cost more than it tells anyone. The rest stays one
- * count away.
- */
-const ARCHIVE_COLUMN_LIMIT = 20;
+/** The select needs a value for "no filter"; the store keeps null. */
+const ALL_PROJECTS_VALUE = "__all__";
 
 const COLUMN_DOT_CLASS: Record<ThreadBoardColumn, string> = {
-  pending: "bg-sky-500",
-  iterating: "bg-orange-500",
-  review: "bg-amber-500",
+  building: "bg-sky-500",
+  validating: "bg-orange-500",
+  needs_review: "bg-amber-500",
   ready: "bg-emerald-500",
   archive: "bg-muted-foreground",
 };
@@ -120,7 +120,7 @@ function ThreadBoardCard({
     statusPresentation === null ? null : THREAD_STATUS_ICONS[statusPresentation.icon];
   const runAction = useAtomCommand(pullRequestEnvironment.runAction, { reportFailure: false });
   const [merging, setMerging] = useState(false);
-  const isPinned = thread.boardColumnOverride != null;
+  const isPinned = thread.boardColumn != null;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: threadKey,
     data: { thread },
@@ -343,7 +343,6 @@ function ColumnAppearanceIcon({
 function ThreadBoardColumnSection({
   column,
   threads,
-  overflowCount,
   appearance,
   cardAppearanceFor,
   showStatus,
@@ -353,7 +352,6 @@ function ThreadBoardColumnSection({
 }: {
   column: ThreadBoardColumn;
   threads: ReadonlyArray<EnvironmentThreadShell>;
-  overflowCount: number;
   appearance: BoardAppearance | undefined;
   cardAppearanceFor: (thread: EnvironmentThreadShell) => BoardAppearance | null;
   showStatus: boolean;
@@ -444,9 +442,6 @@ function ThreadBoardColumnSection({
             onUnpin={onUnpin}
           />
         ))}
-        {overflowCount > 0 ? (
-          <p className="px-1 py-2 text-muted-foreground text-xs">{overflowCount} more archived</p>
-        ) : null}
       </div>
     </section>
   );
@@ -458,7 +453,9 @@ export function ThreadBoardView() {
   const groupingSettings = useClientSettings(selectProjectGroupingSettings);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
+  const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
   const navigate = useNavigate();
+  useSyncSounds();
   const showThreadStatus = useClientSettings((settings) => settings.boardShowThreadStatus);
   const updateClientSettings = useUpdateClientSettings();
   const columnAppearance = useClientSettings((settings) => settings.boardColumnAppearance);
@@ -497,6 +494,20 @@ export function ThreadBoardView() {
     [projectGroups, projectScopeKey, spaceSections],
   );
 
+  // Spaces first, then the projects themselves: picking a space narrows to
+  // everything under it, which is the coarser cut a person reaches for first.
+  const scopeOptions = useMemo(() => {
+    const named = spaceSections.filter((section) => section.name !== null);
+    return [
+      ...named.map((section) => ({ key: section.key, label: section.name ?? "" })),
+      ...projectGroups.map((group) => ({ key: group.projectKey, label: group.displayName })),
+    ];
+  }, [projectGroups, spaceSections]);
+  const scopeLabel =
+    projectScopeKey === null
+      ? "All projects"
+      : (scopeOptions.find((option) => option.key === projectScopeKey)?.label ?? "All projects");
+
   const scopedThreads = useMemo(
     () =>
       scopedProjectKeys === null
@@ -512,11 +523,33 @@ export function ThreadBoardView() {
     [scopedThreads],
   );
 
+  // What each visible thread would announce if it reached that state now. The
+  // hook compares this against the last one it saw, so nothing sounds until
+  // something actually changes.
+  const soundableStatuses = useMemo(() => {
+    const map = new Map<string, SoundEvent | null>();
+    for (const thread of scopedThreads) {
+      const status = resolveSidebarThreadStatus(thread);
+      map.set(
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        status === "failed"
+          ? "thread-failed"
+          : status === "approval" || status === "input"
+            ? "thread-attention"
+            : status === "ready"
+              ? "thread-done"
+              : null,
+      );
+    }
+    return map;
+  }, [scopedThreads]);
+  useThreadStatusSounds(soundableStatuses);
+
   // Every card's column, in order: the one thing whose change means a card has
   // to travel. Re-running the slide on any thread edit would animate typing.
   const layoutKey = useMemo(
     () =>
-      THREAD_BOARD_COLUMNS.flatMap((column) =>
+      THREAD_BOARD_LANES.flatMap((column) =>
         board[column].map((thread) => `${column}:${thread.environmentId}:${thread.id}`),
       ).join(" "),
     [board],
@@ -534,10 +567,13 @@ export function ThreadBoardView() {
   );
 
   const setBoardColumn = useCallback(
-    (thread: EnvironmentThreadShell, column: ThreadBoardColumn | null) => {
+    (thread: EnvironmentThreadShell, column: ThreadBoardColumn | null, cue?: SoundEvent) => {
+      // One gesture, one cue: the caller names it so a drop does not also
+      // announce itself as a pin.
+      playAppSound(cue ?? (column === null ? "card-unpinned" : "card-pinned"));
       void updateThreadMetadata({
         environmentId: thread.environmentId,
-        input: { threadId: thread.id, boardColumnOverride: column },
+        input: { threadId: thread.id, boardColumn: column },
       });
     },
     [updateThreadMetadata],
@@ -578,7 +614,7 @@ export function ThreadBoardView() {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildBoardCardMenuItems({
-              pinnedColumn: thread.boardColumnOverride ?? null,
+              pinnedColumn: thread.boardColumn ?? null,
               appearance: threadAppearance[key] ?? null,
               showsStatus: showThreadStatus,
               isSettled: thread.settledAt != null || thread.settledOverride === "settled",
@@ -669,44 +705,64 @@ export function ThreadBoardView() {
       const thread = event.active.data.current?.thread as EnvironmentThreadShell | undefined;
       const over = event.over?.id;
       if (thread === undefined || typeof over !== "string") return;
-      const target = THREAD_BOARD_COLUMNS.find((column) => column === over);
+      const target = THREAD_BOARD_LANES.find((column) => column === over);
       if (target === undefined) return;
       // Dropping a card back where its own state would have put it reads as
       // letting go, not as pinning it there: the override clears and the card
       // goes back to moving on its own.
       const derived = resolveThreadBoardColumn({
         ...threadBoardInput(thread),
-        boardColumnOverride: null,
+        boardColumn: null,
       });
       const next = derived === target ? null : target;
-      if ((thread.boardColumnOverride ?? null) === next) return;
-      setBoardColumn(thread, next);
+      if ((thread.boardColumn ?? null) === next) return;
+      setBoardColumn(thread, next, "card-moved");
     },
     [setBoardColumn],
   );
 
   return (
-    <DndContext sensors={dndSensors} collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
-      <div ref={containerRef} className="flex h-full min-h-0 gap-3 overflow-x-auto p-3">
-        {THREAD_BOARD_COLUMNS.map((column) => (
-          <ThreadBoardColumnSection
-            key={column}
-            column={column}
-            threads={
-              column === "archive" ? board[column].slice(0, ARCHIVE_COLUMN_LIMIT) : board[column]
-            }
-            overflowCount={
-              column === "archive" ? Math.max(0, board[column].length - ARCHIVE_COLUMN_LIMIT) : 0
-            }
-            appearance={columnAppearance[column]}
-            cardAppearanceFor={cardAppearanceFor}
-            showStatus={showThreadStatus}
-            onCardContextMenu={handleCardContextMenu}
-            onColumnContextMenu={handleColumnContextMenu}
-            onUnpin={handleUnpin}
-          />
-        ))}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 px-3 pt-3">
+        <Select
+          value={projectScopeKey ?? ALL_PROJECTS_VALUE}
+          onValueChange={(value) => {
+            if (value === null) return;
+            setProjectScopeKey(value === ALL_PROJECTS_VALUE ? null : value);
+          }}
+        >
+          <SelectTrigger size="sm" className="w-56" aria-label="Projects shown on the board">
+            <SelectValue>{scopeLabel}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="start" alignItemWithTrigger={false}>
+            <SelectItem hideIndicator value={ALL_PROJECTS_VALUE}>
+              All projects
+            </SelectItem>
+            {scopeOptions.map((option) => (
+              <SelectItem hideIndicator key={option.key} value={option.key}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
       </div>
-    </DndContext>
+      <DndContext sensors={dndSensors} collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
+        <div ref={containerRef} className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
+          {THREAD_BOARD_LANES.map((column) => (
+            <ThreadBoardColumnSection
+              key={column}
+              column={column}
+              threads={board[column]}
+              appearance={columnAppearance[column]}
+              cardAppearanceFor={cardAppearanceFor}
+              showStatus={showThreadStatus}
+              onCardContextMenu={handleCardContextMenu}
+              onColumnContextMenu={handleColumnContextMenu}
+              onUnpin={handleUnpin}
+            />
+          ))}
+        </div>
+      </DndContext>
+    </div>
   );
 }

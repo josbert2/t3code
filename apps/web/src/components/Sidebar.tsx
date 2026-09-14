@@ -1365,6 +1365,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     isSelected,
   });
   const rowStatus = resolveThreadStatusPresentation({ status, isUnread, isWoke });
+  // One colored dot carries the state inside a run, the way the rest of the
+  // row's detail already moved up to the project header.
+  const statusDot = (
+    <span
+      aria-hidden
+      className={cn(
+        "size-2 shrink-0 rounded-full",
+        rowStatus === null ? "bg-muted-foreground/40" : cn("bg-current", rowStatus.className),
+      )}
+    />
+  );
   // Inside a project run the header speaks for the whole group, so a row that
   // repeated it would say the same thing twice. Woke is the exception: it is
   // not a report but a button, and the group header cannot dismiss it.
@@ -1815,7 +1826,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             }
           >
             <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-              {props.project ? (
+              {props.grouped ? (
+                statusDot
+              ) : props.project ? (
                 <ProjectFavicon project={props.project} className="size-4" />
               ) : driverKind ? (
                 <ProviderInstanceIcon
@@ -1918,8 +1931,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
               )}
             >
-              {props.project ? <ProjectFavicon project={props.project} className="size-4" /> : null}
+              {props.project && !props.grouped ? (
+                <ProjectFavicon project={props.project} className="size-4" />
+              ) : null}
             </span>
+            {props.grouped ? statusDot : null}
             {draftIndicator}
             {title}
             {pinIndicator}
@@ -1932,7 +1948,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {/* The PR badge stays outside the hover-fading slot: it must
               remain visible AND clickable while the row is hovered. Only
               the time/jump label yields to the settle affordance. */}
-            {prBadge}
+            {props.grouped ? null : prBadge}
             {sortable?.isDragging ? (
               dragDestination
             ) : (
@@ -2084,7 +2100,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           >
             <div className="flex h-5 w-full min-w-0 items-center gap-1.5">
               {draftIndicator}
-              {props.project ? (
+              {props.grouped ? (
+                statusDot
+              ) : props.project ? (
                 <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
                   <ProjectFavicon project={props.project} className="size-4" />
                   {compactRows && isRemote ? (

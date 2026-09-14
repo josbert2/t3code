@@ -723,9 +723,9 @@ export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
  * that made it.
  */
 export const ThreadBoardColumn = Schema.Literals([
-  "pending",
-  "iterating",
-  "review",
+  "building",
+  "validating",
+  "needs_review",
   "ready",
   "archive",
 ]);
@@ -782,7 +782,7 @@ export const OrchestrationThread = Schema.Struct({
   // Column a person pinned this thread to, which outranks the column its own
   // state would derive. Null lets it derive again. Optional so old
   // servers/clients interop; absent means never pinned.
-  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
+  boardColumn: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -856,7 +856,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   // Column a person pinned this thread to, which outranks the column its own
   // state would derive. Null lets it derive again. Optional so old
   // servers/clients interop; absent means never pinned.
-  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
+  boardColumn: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -1183,7 +1183,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
-  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
+  boardColumn: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
 }).check(
   Schema.makeFilter(
     (input) =>
@@ -1723,7 +1723,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   // Column a person pinned this thread to, which outranks the column its own
   // state would derive. Null lets it derive again. Optional so old
   // servers/clients interop; absent means never pinned.
-  boardColumnOverride: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
+  boardColumn: Schema.optional(Schema.NullOr(ThreadBoardColumn)),
   title: Schema.optional(TrimmedNonEmptyString),
   /** Intent marker consumed by the title-generation reactor. Keeping this on
       the existing event lets older clients safely ignore the new field. */

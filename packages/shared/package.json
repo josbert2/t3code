@@ -322,6 +322,10 @@
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"
+    },
+    "./threadBoardColumn": {
+      "types": "./src/threadBoardColumn.ts",
+      "import": "./src/threadBoardColumn.ts"
     }
   },
   "scripts": {
