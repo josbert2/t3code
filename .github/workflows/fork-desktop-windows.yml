@@ -28,8 +28,53 @@ permissions:
   contents: read
 
 jobs:
+  # node-pty publishes no Linux prebuilt, and the WSL backend runs under the
+  # distro's own Node, which cannot load the Windows binary. Without this the
+  # installer ships without a WSL runtime and the backend never starts. Same
+  # approach the upstream release workflow takes.
+  wsl_node_pty:
+    name: Build WSL node-pty (linux-${{ inputs.arch || 'x64' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=t3...
+
+      - name: Build node-pty prebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          ( cd "$pty_dir" && npx --yes node-gyp rebuild )
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+          file wsl-prebuild/pty.node
+
+      - name: Upload prebuild
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl-node-pty-${{ inputs.arch || 'x64' }}
+          path: wsl-prebuild/pty.node
+          if-no-files-found: error
+
   build:
     name: Build Windows installer (${{ inputs.arch || 'x64' }})
+    needs: [wsl_node_pty]
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -67,9 +112,15 @@ jobs:
       - name: Install
         run: vp install
 
+      - name: Download WSL node-pty prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: wsl-node-pty-${{ inputs.arch || 'x64' }}
+          path: wsl-prebuild
+
       - name: Build installer
         shell: pwsh
-        run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch ${{ inputs.arch || 'x64' }}
+        run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch ${{ inputs.arch || 'x64' }} --wsl-prebuild "$env:GITHUB_WORKSPACE/wsl-prebuild/pty.node"
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
