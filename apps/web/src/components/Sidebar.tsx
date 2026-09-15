@@ -63,6 +63,8 @@ import {
   TerminalIcon,
   Undo2Icon,
   XIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
 } from "lucide-react";
 import {
   memo,
@@ -1076,6 +1078,63 @@ function ProjectAppearanceIcon({
   );
 }
 
+/**
+ * Where a project's checkout stands, for someone who moves between machines:
+ * the branch they are on, whether anything is uncommitted, and how far it has
+ * drifted from the remote in either direction.
+ *
+ * One subscription per project rather than per thread row, and only while the
+ * header is mounted, so a sidebar full of projects does not open a git watcher
+ * for every row under them.
+ */
+function SidebarProjectSyncBadge({ project }: { project: EnvironmentProject }) {
+  const status = useEnvironmentQuery(
+    vcsEnvironment.status({
+      environmentId: project.environmentId,
+      input: { cwd: project.workspaceRoot },
+    }),
+  );
+  const data = status.data;
+  if (data == null || !data.isRepo) return null;
+  const behind = data.behindCount ?? 0;
+  const ahead = data.aheadCount ?? 0;
+  const dirty = data.hasWorkingTreeChanges;
+  if (behind === 0 && ahead === 0 && !dirty) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="flex shrink-0 items-center gap-1 text-secondary-label text-xs tabular-nums" />
+        }
+      >
+        {behind > 0 ? (
+          <span className="flex items-center text-amber-600 dark:text-amber-400">
+            <ArrowDownIcon aria-hidden className="size-3" />
+            {behind}
+          </span>
+        ) : null}
+        {ahead > 0 ? (
+          <span className="flex items-center text-sky-600 dark:text-sky-400">
+            <ArrowUpIcon aria-hidden className="size-3" />
+            {ahead}
+          </span>
+        ) : null}
+        {dirty ? <span aria-hidden className="size-1.5 rounded-full bg-muted-foreground" /> : null}
+      </TooltipTrigger>
+      <TooltipPopup side="right">
+        {[
+          data.refName === null ? null : `On ${data.refName}`,
+          behind > 0 ? `${behind} to pull` : null,
+          ahead > 0 ? `${ahead} to push` : null,
+          dirty ? "Uncommitted changes" : null,
+        ]
+          .filter((line) => line !== null)
+          .join(" · ")}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
   project: EnvironmentProject | null;
   label: string | null;
@@ -1183,6 +1242,7 @@ const SidebarProjectHeaderRow = memo(function SidebarProjectHeaderRow(props: {
             {props.timeLabel}
           </span>
         )}
+        {props.project ? <SidebarProjectSyncBadge project={props.project} /> : null}
         {/* The count is what a collapsed group has left to say. */}
         <span className="shrink-0 text-secondary-label text-xs tabular-nums">
           {props.threadCount}
@@ -1612,7 +1672,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
     // Indented and a size down from the project header above it, so the run
     // reads as that project's threads rather than as more top-level rows.
-    props.grouped && "ms-5 w-[calc(100%-1.25rem)]",
+    props.grouped && "ms-4 w-[calc(100%-1rem)]",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground"
