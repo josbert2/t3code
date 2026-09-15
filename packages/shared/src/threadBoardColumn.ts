@@ -48,6 +48,8 @@ export interface ThreadBoardFacts {
   readonly isWorking?: boolean;
   /** The turn stopped on something only a person can answer. */
   readonly awaitsPerson?: boolean;
+  /** The agent finished at least one turn, so there is something to look at. */
+  readonly hasFinishedWork?: boolean;
 }
 
 /**
@@ -100,9 +102,10 @@ export function deriveThreadBoardColumn(facts: ThreadBoardFacts): ThreadBoardCol
   if (facts.settledAt != null) {
     return "ready";
   }
-  // The agent stopped and asked for nothing: there is work sitting there to be
-  // looked at, which is the same place a draft pull request lands.
-  return "validating";
+  // Stopped, asking for nothing, with a finished turn behind it: there is work
+  // sitting there to be looked at, which is where a draft pull request lands
+  // too. A thread that never ran has produced nothing and stays at the start.
+  return facts.hasFinishedWork === true ? "validating" : "building";
 }
 
 /**
@@ -137,6 +140,7 @@ export function threadBoardFacts(thread: {
   readonly backgroundLiveness?: string | null | undefined;
   readonly hasPendingApprovals?: boolean | undefined;
   readonly hasPendingUserInput?: boolean | undefined;
+  readonly latestTurn?: { readonly completedAt?: string | null | undefined } | null | undefined;
 }): ThreadBoardFacts {
   const link = pickBoardPullRequestLink(thread.pullRequests);
   const snapshot = link?.snapshot ?? null;
@@ -149,6 +153,7 @@ export function threadBoardFacts(thread: {
       sessionStatus === "starting" ||
       thread.backgroundLiveness === "working",
     awaitsPerson: thread.hasPendingApprovals === true || thread.hasPendingUserInput === true,
+    hasFinishedWork: thread.latestTurn?.completedAt != null,
     pullRequest:
       link === null
         ? null

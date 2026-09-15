@@ -7,9 +7,19 @@ import {
 } from "./threadBoard.ts";
 
 describe("resolveThreadBoardColumn", () => {
-  it("keeps a working thread building until it settles or opens a change request", () => {
+  it("starts a thread building and walks it forward on its own turn", () => {
     expect(resolveThreadBoardColumn({})).toBe("building");
-    expect(resolveThreadBoardColumn({ settledAt: "2026-09-13T00:00:00.000Z" })).toBe("archive");
+    expect(resolveThreadBoardColumn({ isWorking: true })).toBe("building");
+    // A finished turn is work someone can look at, even with no pull request.
+    expect(resolveThreadBoardColumn({ hasFinishedWork: true })).toBe("validating");
+    expect(resolveThreadBoardColumn({ awaitsPerson: true })).toBe("needs_review");
+  });
+
+  it("keeps settled work on the board and only archives what was put away", () => {
+    // Settling is how work reaches Ready without a change request; archiving
+    // is the only thing that takes it off the board.
+    expect(resolveThreadBoardColumn({ settledAt: "2026-09-13T00:00:00.000Z" })).toBe("ready");
+    expect(resolveThreadBoardColumn({ archivedAt: "2026-09-13T00:00:00.000Z" })).toBe("archive");
   });
 
   it("sends drafts, requested changes and failing checks back to validating", () => {
