@@ -3,6 +3,7 @@ import { isWindowsPlatform } from "./utils";
 const WCO_CLASS_NAME = "wco";
 const ELECTRON_CLASS_NAME = "electron";
 const ELECTRON_WINDOWS_CLASS_NAME = "electron-windows";
+const ELECTRON_LINUX_CLASS_NAME = "electron-linux";
 
 interface WindowControlsOverlayLike {
   readonly visible: boolean;
@@ -43,14 +44,16 @@ export function syncDocumentWindowControlsOverlayClass(): () => void {
   };
 }
 
-function getElectronPlatformClassNames(
-  platform: string,
-):
-  | readonly [typeof ELECTRON_CLASS_NAME]
-  | readonly [typeof ELECTRON_CLASS_NAME, typeof ELECTRON_WINDOWS_CLASS_NAME] {
-  return isWindowsPlatform(platform)
-    ? [ELECTRON_CLASS_NAME, ELECTRON_WINDOWS_CLASS_NAME]
-    : [ELECTRON_CLASS_NAME];
+function getElectronPlatformClassNames(platform: string): ReadonlyArray<string> {
+  if (isWindowsPlatform(platform)) {
+    return [ELECTRON_CLASS_NAME, ELECTRON_WINDOWS_CLASS_NAME];
+  }
+  // Linux draws its own window buttons, so the layout has to reserve room for
+  // them the way `.wco` reserves room for the Windows overlay.
+  if (platform.toLowerCase().includes("linux")) {
+    return [ELECTRON_CLASS_NAME, ELECTRON_LINUX_CLASS_NAME];
+  }
+  return [ELECTRON_CLASS_NAME];
 }
 
 export function syncDocumentElectronPlatformClasses(platform: string): () => void {

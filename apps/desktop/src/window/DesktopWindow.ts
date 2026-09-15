@@ -245,6 +245,15 @@ function getWindowTitleBarOptions(
     };
   }
 
+  // Linux takes the hidden title bar but no overlay: Electron paints the
+  // window controls on Windows and macOS only, so asking for an overlay it
+  // cannot draw leaves a reserved strip nothing fills. The renderer draws its
+  // own buttons there instead (see WindowControls), and the app's title bar
+  // stays draggable.
+  if (platform === "linux") {
+    return { titleBarStyle: "hidden" };
+  }
+
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: {

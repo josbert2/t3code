@@ -89,6 +89,50 @@ export const getWindowFullscreenState = DesktopIpc.makeSyncIpcMethod({
   }),
 });
 
+export const getWindowMaximizedState = DesktopIpc.makeSyncIpcMethod({
+  channel: IpcChannels.GET_WINDOW_MAXIMIZED_STATE_CHANNEL,
+  result: Schema.Boolean,
+  handler: Effect.fn("desktop.ipc.window.getWindowMaximizedState")(function* () {
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const window = yield* electronWindow.currentMainOrFirst;
+    return Option.isSome(window) && window.value.isMaximized();
+  }),
+});
+
+const WindowControlAction = Schema.Literals(["minimize", "toggle-maximize", "close"]);
+
+// Windows and macOS get their window buttons from the platform: an overlay on
+// one, traffic lights on the other. Linux has neither, so the renderer draws
+// the buttons itself and asks the main process to act on them here.
+export const controlWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.WINDOW_CONTROL_CHANNEL,
+  payload: WindowControlAction,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.controlWindow")(function* (action) {
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const window = yield* electronWindow.currentMainOrFirst;
+    if (Option.isNone(window) || window.value.isDestroyed()) {
+      return;
+    }
+    const target = window.value;
+    switch (action) {
+      case "minimize":
+        target.minimize();
+        return;
+      case "toggle-maximize":
+        if (target.isMaximized()) {
+          target.unmaximize();
+        } else {
+          target.maximize();
+        }
+        return;
+      case "close":
+        target.close();
+        return;
+    }
+  }),
+});
+
 export const getLocalEnvironmentBootstraps = DesktopIpc.makeSyncIpcMethod({
   channel: IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL,
   result: Schema.Array(DesktopEnvironmentBootstrapSchema),

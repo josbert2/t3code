@@ -122,6 +122,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* Linux has no system window buttons inside a frameless window, so the app
+   paints its own in the top-right corner. Everything the top bar positions
+   against that corner steps aside by exactly their width. */
+.electron-linux {
+  --workspace-controls-right: calc(env(safe-area-inset-right) + 7rem);
+  --workspace-native-controls-inset: 7rem;
+}
+
 .wco {
   --workspace-topbar-height: env(titlebar-area-height, 52px);
   --workspace-controls-top: env(titlebar-area-y, 0px);

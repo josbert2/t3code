@@ -1,0 +1,82 @@
+name: Fork desktop build (Windows)
+
+# Builds the Windows desktop installer for this fork on a GitHub-hosted Windows
+# runner and uploads it as an artifact.
+#
+# The upstream release workflows cannot do this job here: they run on the
+# maintainers' `blacksmith-*` runners and publish signed releases. Cross-
+# building from Linux is not an option either, because the staged production
+# install resolves native dependencies (ffi-rs, the resource monitor) for the
+# host platform. So a real Windows runner it is.
+#
+# The installer is unsigned, so Windows SmartScreen warns on first run
+# ("More info" -> "Run anyway").
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Target architecture"
+        required: false
+        default: x64
+        type: choice
+        options:
+          - x64
+          - arm64
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows installer (${{ inputs.arch || 'x64' }})
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ inputs.arch == 'arm64' && 'aarch64-pc-windows-msvc' || 'x86_64-pc-windows-msvc' }}
+
+      - name: Resolve package cache path
+        id: package_cache_path
+        shell: pwsh
+        run: '"path=$(vp pm cache dir)" >> $env:GITHUB_OUTPUT'
+
+      - name: Cache packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.package_cache_path.outputs.path }}
+          key: fork-desktop-windows-packages-v1-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install
+        run: vp install
+
+      - name: Build installer
+        shell: pwsh
+        run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch ${{ inputs.arch || 'x64' }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: t3code-windows-${{ inputs.arch || 'x64' }}
+          path: |
+            release/*.exe
+            release/*.blockmap
+          if-no-files-found: error
+          retention-days: 14
